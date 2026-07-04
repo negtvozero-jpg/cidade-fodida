@@ -67,6 +67,8 @@ const TEXT = {
     stayHomeAwake: "Você decidiu ficar em casa acordado.",
     goOutToPoi: (action) => `Você decidiu ir até ${formatPoiName(action.targetPoiCode)}.`,
     killPlayer: (action) => `Você escolheu atacar ${formatPlayerName(action.targetPlayerName)}.`,
+    vigilanteKill: (action) => `Você escolheu atacar ${formatPlayerName(action.targetPlayerName)}.`,
+    possessedKill: (action) => `Você escolheu atacar ${formatPlayerName(action.targetPlayerName)}.`,
     investigateRegion: (action) => `Você decidiu investigar ${formatActionRegion(action)}.`,
     protectPlayer: (action) => (
       action.targetPlayerId === action.actorId

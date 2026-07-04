@@ -42,6 +42,9 @@ const CLUE_CATEGORY = {
   PROTECTED: "protected",
   SPECIAL_ACTION: "specialAction",
   PLANTED_EVIDENCE: "plantedEvidence",
+  VIGILANTE_GRAVE: "vigilanteGrave",
+  SABOTAGE: "sabotage",
+  CURSE: "curse",
   FALLBACK: "fallback"
 };
 
@@ -121,6 +124,7 @@ function resolveNightClues({ room, seed = Date.now() } = {}) {
   }
 
   ensurePrivateFallbacks(room, privateClueObjectsByPlayerId);
+  applySabotageClueEffects(room, privateClueObjectsByPlayerId, seed);
 
   return {
     publicClues: uniqueStrings(publicClues),
@@ -159,7 +163,8 @@ function generateActionClues({ room, action, actor, rng }) {
     actionClass === ACTION_CLASS.PROTECT_PLAYER ||
     actionClass === ACTION_CLASS.JOURNALIST_REPORT ||
     actionClass === ACTION_CLASS.AMBUSH_POI ||
-    actionClass === ACTION_CLASS.PLANT_EVIDENCE
+    actionClass === ACTION_CLASS.PLANT_EVIDENCE ||
+    actionClass === ACTION_CLASS.SABOTAGE
   ) {
     return clues;
   }
@@ -1326,6 +1331,94 @@ function createRng(seed) {
 }
 
 
+
+function applySabotageClueEffects(room, privateClueObjectsByPlayerId, seed) {
+  if (!room || !privateClueObjectsByPlayerId) {
+    return;
+  }
+
+  const rng = createRng(Number(seed || Date.now()) + 773);
+  const blackout = room.sabotages?.blackout;
+
+  if (blackout?.active) {
+    for (const [playerId, clues] of Object.entries(privateClueObjectsByPlayerId)) {
+      privateClueObjectsByPlayerId[playerId] = (clues || []).map((clue, index) => {
+        const text = template("blackoutWeakenedClue", {
+          clue: clue?.text || ""
+        }, rng);
+
+        return privateClue(playerId, text, {
+          category: CLUE_CATEGORY.SABOTAGE,
+          placeKey: `blackout:${index}`,
+          priority: getCategoryPriority(CLUE_CATEGORY.SABOTAGE)
+        });
+      });
+    }
+  }
+
+  const cursedPlayerIds = getCursedPlayerIds(room);
+
+  for (const playerId of cursedPlayerIds) {
+    if (!privateClueObjectsByPlayerId[playerId]) {
+      privateClueObjectsByPlayerId[playerId] = [];
+    }
+
+    const current = privateClueObjectsByPlayerId[playerId];
+    const transformed = [];
+
+    for (const clue of current) {
+      const text = template("curseTrueClue", {
+        clue: clue?.text || ""
+      }, rng);
+
+      transformed.push(privateClue(playerId, text, {
+        category: CLUE_CATEGORY.CURSE,
+        placeKey: clue?.placeKey || "curse:true",
+        priority: getCategoryPriority(CLUE_CATEGORY.CURSE)
+      }));
+    }
+
+    const falseText = template("curseFalseClue", {
+      place: pickRandomHauntedPlace(rng)
+    }, rng);
+
+    transformed.push(privateClue(playerId, falseText, {
+      category: CLUE_CATEGORY.CURSE,
+      placeKey: "curse:false",
+      priority: getCategoryPriority(CLUE_CATEGORY.CURSE)
+    }));
+
+    privateClueObjectsByPlayerId[playerId] = transformed;
+  }
+}
+
+function getCursedPlayerIds(room) {
+  const fromSabotage = room?.sabotages?.curse?.cursedPlayerIds;
+
+  if (Array.isArray(fromSabotage)) {
+    return fromSabotage.filter(Boolean);
+  }
+
+  return (room?.players || [])
+    .filter(player => player?.statusEffects?.curse === true)
+    .map(player => player.id);
+}
+
+function pickRandomHauntedPlace(rng) {
+  const roads = Object.values(CLUE_CONFIG.roads || {})
+    .map(road => road.visibleName)
+    .filter(Boolean);
+
+  const pois = Object.values(POI_CONFIG.definitions || {})
+    .map(poi => poi.displayName || poi.visibleName)
+    .filter(Boolean);
+
+  const places = [...roads, ...pois];
+
+  return pick(places, rng) || "algum lugar do bairro";
+}
+
+
 function compactPrivateCluesByPlayerId(privateCluesByPlayerId) {
   const result = {};
   const maxPerNight = Number(CLUE_CONFIG.clueSelection?.maxCluesPerPlayerPerNight || 2);
@@ -1375,6 +1468,42 @@ function inferClueMetaFromText(text) {
       category: CLUE_CATEGORY.SPECIAL_ACTION,
       placeKey: "",
       priority: getCategoryPriority(CLUE_CATEGORY.SPECIAL_ACTION)
+    };
+  }
+
+  if (
+    normalized.includes("fantasma") ||
+    normalized.includes("assombracao") ||
+    normalized.includes("assombracoes")
+  ) {
+    return {
+      category: CLUE_CATEGORY.CURSE,
+      placeKey: "",
+      priority: getCategoryPriority(CLUE_CATEGORY.CURSE)
+    };
+  }
+
+  if (
+    normalized.includes("luzes") ||
+    normalized.includes("apagao") ||
+    normalized.includes("falta de luz") ||
+    normalized.includes("sabotagem")
+  ) {
+    return {
+      category: CLUE_CATEGORY.SABOTAGE,
+      placeKey: "",
+      priority: getCategoryPriority(CLUE_CATEGORY.SABOTAGE)
+    };
+  }
+
+  if (
+    normalized.includes("pistas graves") ||
+    normalized.includes("sinais fortes")
+  ) {
+    return {
+      category: CLUE_CATEGORY.VIGILANTE_GRAVE,
+      placeKey: "",
+      priority: getCategoryPriority(CLUE_CATEGORY.VIGILANTE_GRAVE)
     };
   }
 
@@ -1456,6 +1585,46 @@ function inferClueMetaFromText(text) {
 }
 
 
+
+function buildVigilanteKilledInnocentClue({ room, action, actor, target, rngSeed } = {}) {
+  const rng = createRng(Number(rngSeed || action?.microgameSeed || Date.now()));
+  const resolvedActor = actor || getPlayerById(room, action?.actorId);
+  const resolvedTarget = target || getPlayerById(room, action?.targetPlayerId);
+
+  const data = buildClueTemplateData(room, action, {
+    actor: resolvedActor?.name || action?.actorName || "alguém",
+    player: resolvedActor?.name || action?.actorName || "alguém",
+    targetPlayer: resolvedTarget?.name || action?.targetPlayerName || "alguém",
+    "target player": resolvedTarget?.name || action?.targetPlayerName || "alguém",
+    targetHome: resolvedTarget ? getPlayerHomeLabel(resolvedTarget) : "uma casa próxima",
+    "target home": resolvedTarget ? getPlayerHomeLabel(resolvedTarget) : "uma casa próxima",
+    crimeScene: resolvedTarget ? getPlayerHomeLabel(resolvedTarget) : "uma área próxima",
+    "crime scene": resolvedTarget ? getPlayerHomeLabel(resolvedTarget) : "uma área próxima"
+  });
+
+  return template("vigilanteKilledInnocent", data, rng);
+}
+
+function buildSabotageStartedClue({ sabotageType, rngSeed } = {}) {
+  const rng = createRng(Number(rngSeed || Date.now()));
+  const keyByType = {
+    blackout: "sabotageBlackoutStarted",
+    microgameDifficultyUp: "sabotageMicrogameDifficultyStarted",
+    curse: "sabotageCurseStarted"
+  };
+
+  return template(keyByType[sabotageType] || "sabotageBlackoutStarted", {}, rng);
+}
+
+function buildCurseRemovedClue({ rngSeed } = {}) {
+  return template("curseRemoved", {}, createRng(Number(rngSeed || Date.now())));
+}
+
+function buildBlackoutRepairedClue({ rngSeed } = {}) {
+  return template("blackoutRepaired", {}, createRng(Number(rngSeed || Date.now())));
+}
+
+
 module.exports = {
   resolveNightClues,
   getMicrogameQuality,
@@ -1464,6 +1633,10 @@ module.exports = {
   buildDetectiveClue,
   buildJournalistPublishedClue,
   buildPlantedEvidenceClues,
+  buildVigilanteKilledInnocentClue,
+  buildSabotageStartedClue,
+  buildCurseRemovedClue,
+  buildBlackoutRepairedClue,
   buildClueTemplateData,
   compactPrivateCluesByPlayerId
 };

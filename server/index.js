@@ -27,6 +27,7 @@ const {
   ROLE_DEFINITIONS,
   PLAYER_CONFIG,
   POI_CONFIG,
+  SABOTAGE_CONFIG,
   ROLE_TEXT,
   CLUE_CONFIG
 } = require("./src/constants");
@@ -38,7 +39,13 @@ const {
 
 const {
   resolveNightClues,
-  compactPrivateCluesByPlayerId
+  compactPrivateCluesByPlayerId,
+  buildMissedHomeAttackClue,
+  buildProtectedAttackClue,
+  buildVigilanteKilledInnocentClue,
+  buildSabotageStartedClue,
+  buildCurseRemovedClue,
+  buildBlackoutRepairedClue
 } = require("./src/clueGenerator");
 
 const messages = require("./src/messages");
@@ -134,6 +141,8 @@ io.on("connection", socket => {
       neutralWinnerId: "",
       neutralWinnerName: "",
       neutralWinnerRoleName: "",
+
+      sabotages: createDefaultSabotageState(),
 
       players: [player]
     };
@@ -704,6 +713,238 @@ io.on("connection", socket => {
   });
 });
 
+
+function createDefaultSabotageState() {
+  return {
+    blackout: {
+      active: false,
+      startedDayNumber: 0,
+      canRepairFromDayNumber: 0,
+      repairPoiCode: SABOTAGE_CONFIG.blackout.repairPoiCode
+    },
+    microgameDifficultyUp: {
+      active: false,
+      pending: false,
+      expiresAfterDayNumber: 0,
+      difficultyBonus: SABOTAGE_CONFIG.microgameDifficultyUp.difficultyBonus
+    },
+    curse: {
+      active: false,
+      cursedPlayerIds: [],
+      repairPoiCode: SABOTAGE_CONFIG.curse.repairPoiCode
+    }
+  };
+}
+
+function ensureSabotageState(room) {
+  if (!room.sabotages) {
+    room.sabotages = createDefaultSabotageState();
+  }
+
+  room.sabotages.blackout = {
+    ...createDefaultSabotageState().blackout,
+    ...(room.sabotages.blackout || {})
+  };
+
+  room.sabotages.microgameDifficultyUp = {
+    ...createDefaultSabotageState().microgameDifficultyUp,
+    ...(room.sabotages.microgameDifficultyUp || {})
+  };
+
+  room.sabotages.curse = {
+    ...createDefaultSabotageState().curse,
+    ...(room.sabotages.curse || {})
+  };
+
+  return room.sabotages;
+}
+
+function resolveSabotageActions(room) {
+  ensureSabotageState(room);
+
+  const actions = Object.values(room.nightActions || {})
+    .filter(action => action?.success && action.actionClass === ACTION_CLASS.SABOTAGE)
+    .sort((a, b) => Number(a.submittedAt || 0) - Number(b.submittedAt || 0));
+
+  for (const action of actions) {
+    const sabotageType = pickSabotageType(room, action);
+    applySabotage(room, sabotageType, action);
+  }
+}
+
+function pickSabotageType(room, action) {
+  const available = (SABOTAGE_CONFIG.types || []).filter(type => {
+    if (type === "blackout") {
+      return !room.sabotages.blackout.active;
+    }
+
+    if (type === "microgameDifficultyUp") {
+      return !room.sabotages.microgameDifficultyUp.active &&
+        !room.sabotages.microgameDifficultyUp.pending;
+    }
+
+    if (type === "curse") {
+      return true;
+    }
+
+    return true;
+  });
+
+  if (available.length <= 0) {
+    return "blackout";
+  }
+
+  const seed = Number(action.microgameSeed || Date.now());
+  return available[Math.abs(seed) % available.length];
+}
+
+function applySabotage(room, sabotageType, action) {
+  if (sabotageType === "blackout") {
+    room.sabotages.blackout.active = true;
+    room.sabotages.blackout.startedDayNumber = room.dayNumber;
+    room.sabotages.blackout.canRepairFromDayNumber =
+      room.dayNumber + Number(SABOTAGE_CONFIG.blackout.repairDelayNights || 1);
+    room.sabotages.blackout.repairPoiCode = SABOTAGE_CONFIG.blackout.repairPoiCode;
+  } else if (sabotageType === "microgameDifficultyUp") {
+    room.sabotages.microgameDifficultyUp.pending = true;
+    room.sabotages.microgameDifficultyUp.difficultyBonus =
+      Number(SABOTAGE_CONFIG.microgameDifficultyUp.difficultyBonus || 1);
+  } else if (sabotageType === "curse") {
+    const cursed = pickCursedPlayers(room, action);
+    room.sabotages.curse.active = true;
+    room.sabotages.curse.cursedPlayerIds = uniqueArray([
+      ...(room.sabotages.curse.cursedPlayerIds || []),
+      ...cursed.map(player => player.id)
+    ]);
+
+    for (const player of cursed) {
+      player.statusEffects = {
+        ...(player.statusEffects || {}),
+        curse: true
+      };
+    }
+  }
+
+  const actor = room.players.find(player => player.id === action.actorId);
+  const text = buildSabotageStartedClue({
+    sabotageType,
+    rngSeed: Date.now() + Number(actor?.index || 0)
+  });
+
+  if (actor && text) {
+    appendPrivateClue(room, actor.id, text);
+  }
+}
+
+function pickCursedPlayers(room, action) {
+  const count = Number(SABOTAGE_CONFIG.curse.cursedPlayerCount || 2);
+  const candidates = getAlivePlayers(room).filter(player => player.id !== action.actorId);
+  return shuffleArray(candidates).slice(0, count);
+}
+
+function resolveSabotageRepairs(room) {
+  ensureSabotageState(room);
+
+  for (const action of Object.values(room.nightActions || {})) {
+    if (!action?.success || action.actionClass !== ACTION_CLASS.VISIT_POI) {
+      continue;
+    }
+
+    if (
+      room.sabotages.blackout.active &&
+      action.targetPoiCode === room.sabotages.blackout.repairPoiCode &&
+      room.dayNumber >= Number(room.sabotages.blackout.canRepairFromDayNumber || 0)
+    ) {
+      room.sabotages.blackout.active = false;
+
+      appendPrivateClue(
+        room,
+        action.actorId,
+        buildBlackoutRepairedClue({ rngSeed: Date.now() })
+      );
+    }
+
+    if (
+      room.sabotages.curse.active &&
+      action.targetPoiCode === room.sabotages.curse.repairPoiCode &&
+      isPlayerCursed(room, action.actorId)
+    ) {
+      removeCurseFromPlayer(room, action.actorId);
+
+      appendPrivateClue(
+        room,
+        action.actorId,
+        buildCurseRemovedClue({ rngSeed: Date.now() })
+      );
+    }
+  }
+
+  if ((room.sabotages.curse.cursedPlayerIds || []).length <= 0) {
+    room.sabotages.curse.active = false;
+  }
+}
+
+function activatePendingNightSabotages(room) {
+  ensureSabotageState(room);
+
+  if (room.sabotages.microgameDifficultyUp.pending) {
+    room.sabotages.microgameDifficultyUp.pending = false;
+    room.sabotages.microgameDifficultyUp.active = true;
+    room.sabotages.microgameDifficultyUp.expiresAfterDayNumber =
+      room.dayNumber + Number(SABOTAGE_CONFIG.microgameDifficultyUp.durationNights || 1) - 1;
+  }
+}
+
+function expireNightSabotages(room) {
+  ensureSabotageState(room);
+
+  if (
+    room.sabotages.microgameDifficultyUp.active &&
+    room.dayNumber >= Number(room.sabotages.microgameDifficultyUp.expiresAfterDayNumber || 0)
+  ) {
+    room.sabotages.microgameDifficultyUp.active = false;
+    room.sabotages.microgameDifficultyUp.expiresAfterDayNumber = 0;
+  }
+}
+
+function getActiveMicrogameDifficultyBonus(room) {
+  if (!room) {
+    return 0;
+  }
+
+  ensureSabotageState(room);
+
+  if (!room.sabotages.microgameDifficultyUp.active) {
+    return 0;
+  }
+
+  return Number(room.sabotages.microgameDifficultyUp.difficultyBonus || 0);
+}
+
+function isPlayerCursed(room, playerId) {
+  ensureSabotageState(room);
+
+  return (room.sabotages.curse.cursedPlayerIds || []).includes(playerId);
+}
+
+function removeCurseFromPlayer(room, playerId) {
+  ensureSabotageState(room);
+
+  room.sabotages.curse.cursedPlayerIds =
+    (room.sabotages.curse.cursedPlayerIds || []).filter(id => id !== playerId);
+
+  const player = room.players.find(item => item.id === playerId);
+
+  if (player?.statusEffects) {
+    player.statusEffects.curse = false;
+  }
+}
+
+function uniqueArray(values) {
+  return [...new Set((values || []).filter(Boolean))];
+}
+
+
 function fallbackBuildGameOverMessage(winner) {
   if (winner === WINNER.INNOCENTS) {
     return "amogus morreu";
@@ -731,6 +972,7 @@ function assignRoles(room) {
   room.neutralWinnerRoleName = "";
   room.nightActions = {};
   room.lastActionErrorByPlayerId = {};
+  room.sabotages = createDefaultSabotageState();
   resetRoomClues(room);
 
   const shuffledPlayers = shuffleArray(room.players);
@@ -745,6 +987,7 @@ function assignRoles(room) {
     player.neutralTargetId = "";
     player.neutralTargetName = "";
     player.neutralTargetIndex = -1;
+    player.statusEffects = {};
   });
 
   roleKeys.forEach((roleKey, index) => {
@@ -768,32 +1011,51 @@ function assignRoles(room) {
 function buildRolePoolForPlayerCount(playerCount) {
   const roles = [];
 
-  // Sempre há um impostor. O espreitador substitui o antigo "assassino".
-  roles.push(ROLE_KEY.STALKER);
+  if (playerCount >= 8) {
+    if (Math.random() < 0.5) {
+      roles.push(...shuffleArray([ROLE_KEY.KILLER, ROLE_KEY.STALKER]));
+      roles.push(pickRandomRole([ROLE_KEY.JOKER, ROLE_KEY.INSTIGATOR]));
+    } else {
+      roles.push(pickRandomRole([ROLE_KEY.KILLER, ROLE_KEY.STALKER]));
+      roles.push(ROLE_KEY.POSSESSED);
+      roles.push(pickRandomRole([ROLE_KEY.JOKER, ROLE_KEY.INSTIGATOR]));
+    }
+  } else {
+    roles.push(pickRandomRole([ROLE_KEY.KILLER, ROLE_KEY.STALKER]));
 
-  // O unicórnio entra cedo como proteção básica contra mortes.
+    if (playerCount >= 6) {
+      roles.push(pickRandomRole([ROLE_KEY.JOKER, ROLE_KEY.INSTIGATOR, ROLE_KEY.POSSESSED]));
+    }
+  }
+
   if (playerCount >= 4) {
     roles.push(ROLE_KEY.UNICORN);
   }
 
-  // Com 5 jogadores entra jornalista OU detetive, não os dois.
   if (playerCount === 5) {
     roles.push(Math.random() < 0.5 ? ROLE_KEY.JOURNALIST : ROLE_KEY.DETECTIVE);
   }
 
-  // A partir de 6, jornalista e detetive coexistem.
   if (playerCount >= 6) {
     roles.push(ROLE_KEY.JOURNALIST);
     roles.push(ROLE_KEY.DETECTIVE);
   }
 
-  // Neutros só aparecem a partir de 6 jogadores.
-  if (playerCount >= 6) {
-    roles.push(Math.random() < 0.5 ? ROLE_KEY.JOKER : ROLE_KEY.INSTIGATOR);
+  if (playerCount >= 8) {
+    roles.push(ROLE_KEY.VIGILANTE);
   }
 
-  // Garante que papéis especiais não excedam a quantidade de jogadores.
   return roles.slice(0, Math.max(0, playerCount));
+}
+
+function pickRandomRole(roleKeys) {
+  const candidates = (roleKeys || []).filter(Boolean);
+
+  if (candidates.length <= 0) {
+    return ROLE_KEY.RESIDENT;
+  }
+
+  return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
 function assignInstigatorTargets(room) {
@@ -924,6 +1186,9 @@ function startDayResult(room, voteResult) {
 }
 
 function startNight(room) {
+  ensureSabotageState(room);
+  activatePendingNightSabotages(room);
+
   room.phase = PHASE.NIGHT;
 
   room.votes = {};
@@ -985,6 +1250,10 @@ function startGameOver(room, winner, message = "") {
 }
 
 function resolveNight(room) {
+  ensureSabotageState(room);
+  resolveSabotageRepairs(room);
+  resolveSabotageActions(room);
+
   const clueResult = resolveNightClues({
     room,
     seed: Date.now() + room.dayNumber * 1009
@@ -1002,6 +1271,8 @@ function resolveNight(room) {
   resolveSpecialNightActions(room);
 
   const victimResult = resolveNightDeaths(room);
+
+  expireNightSabotages(room);
 
   room.lastNightPrivateCluesByPlayerId = compactPrivateCluesByPlayerId(
     room.lastNightPrivateCluesByPlayerId
@@ -1038,6 +1309,7 @@ function resolveSpecialNightActions(room) {
 
 function resolveNightDeaths(room) {
   const attacks = getSuccessfulAttackActions(room);
+  const killed = [];
 
   for (const attack of attacks) {
     const victim = resolveVictimForAttack(room, attack);
@@ -1047,30 +1319,81 @@ function resolveNightDeaths(room) {
     }
 
     if (isPlayerProtected(room, victim.id)) {
-      appendPrivateClue(room, victim.id, "Um ataque contra você foi impedido durante a noite.");
+      appendPrivateClue(
+        room,
+        victim.id,
+        buildProtectedAttackClue({
+          room,
+          action: attack,
+          target: victim,
+          rngSeed: Date.now() + victim.index
+        })
+      );
       continue;
     }
 
-    if (attack.actionId === "killPlayer" && !isPlayerHomeDuringNight(room, victim)) {
-      appendPrivateClue(room, victim.id, "Alguém passou pela sua casa durante a noite.");
+    if (isDirectHomeAttack(attack) && !isPlayerHomeDuringNight(room, victim)) {
+      appendPrivateClue(
+        room,
+        victim.id,
+        buildMissedHomeAttackClue({
+          room,
+          action: attack,
+          target: victim,
+          rngSeed: Date.now() + victim.index
+        })
+      );
       continue;
     }
 
     victim.isAlive = false;
     victim.publicStatus = 1;
+    killed.push(victim);
 
+    if (attack.actionId === "vigilanteKill" && getPlayerAlignment(victim) === ALIGNMENT.INNOCENT) {
+      addVigilanteGraveClues(room, attack, victim);
+    }
+  }
+
+  if (killed.length <= 0) {
     return {
-      hasVictim: true,
-      victimIndex: victim.index,
-      victimName: victim.name
+      hasVictim: false,
+      victimIndex: -1,
+      victimName: ""
     };
   }
 
   return {
-    hasVictim: false,
-    victimIndex: -1,
-    victimName: ""
+    hasVictim: true,
+    victimIndex: killed[0].index,
+    victimName: killed.map(player => player.name).join(", ")
   };
+}
+
+function isDirectHomeAttack(action) {
+  return action?.actionId === "killPlayer" ||
+    action?.actionId === "vigilanteKill" ||
+    action?.actionId === "possessedKill";
+}
+
+function addVigilanteGraveClues(room, attack, victim) {
+  const vigilante = room.players.find(player => player.id === attack.actorId);
+
+  const text = buildVigilanteKilledInnocentClue({
+    room,
+    action: attack,
+    actor: vigilante,
+    target: victim,
+    rngSeed: Date.now() + victim.index * 17
+  });
+
+  const recipients = getAlivePlayers(room)
+    .filter(player => player.id !== attack.actorId)
+    .slice(0, 3);
+
+  for (const recipient of recipients) {
+    appendPrivateClue(room, recipient.id, text);
+  }
 }
 
 function getSuccessfulAttackActions(room) {
@@ -1079,14 +1402,20 @@ function getSuccessfulAttackActions(room) {
       return Boolean(action?.success) &&
         (
           action.actionId === "killPlayer" ||
-          action.actionId === "stalkPoi"
+          action.actionId === "stalkPoi" ||
+          action.actionId === "vigilanteKill" ||
+          action.actionId === "possessedKill"
         );
     })
     .sort((a, b) => Number(a.submittedAt || 0) - Number(b.submittedAt || 0));
 }
 
 function resolveVictimForAttack(room, attack) {
-  if (attack.actionId === "killPlayer") {
+  if (
+    attack.actionId === "killPlayer" ||
+    attack.actionId === "vigilanteKill" ||
+    attack.actionId === "possessedKill"
+  ) {
     return room.players.find(player => player.id === attack.targetPlayerId) || null;
   }
 
@@ -1145,8 +1474,11 @@ function isPlayerHomeDuringNight(room, player) {
 
 function doesActionLeaveHome(action) {
   return action.actionClass === ACTION_CLASS.VISIT_POI ||
+    action.actionClass === ACTION_CLASS.VISIT_PLAYER ||
     action.actionClass === ACTION_CLASS.JOURNALIST_REPORT ||
-    action.actionClass === ACTION_CLASS.DETECT_REGION;
+    action.actionClass === ACTION_CLASS.DETECT_REGION ||
+    action.actionClass === ACTION_CLASS.AMBUSH_POI ||
+    action.actionClass === ACTION_CLASS.SABOTAGE;
 }
 
 function isPlayerProtected(room, playerId) {
@@ -1775,20 +2107,38 @@ function getVoteSummary(room, options = {}) {
 }
 
 function getAliveAlignmentCounts(room) {
-  const alivePlayers = getAlivePlayers(room);
+  let aliveInnocents = 0;
+  let aliveImpostors = 0;
+  let aliveNeutrals = 0;
+  let alivePossessed = 0;
 
-  const aliveImpostors = alivePlayers.filter(player => {
-    return getPlayerAlignment(player) === ALIGNMENT.IMPOSTOR;
-  }).length;
+  for (const player of room.players || []) {
+    if (!player.isAlive) {
+      continue;
+    }
 
-  const aliveInnocents = alivePlayers.filter(player => {
-    return getPlayerAlignment(player) === ALIGNMENT.INNOCENT;
-  }).length;
+    const alignment = getPlayerAlignment(player);
+
+    if (player.roleKey === ROLE_KEY.POSSESSED) {
+      alivePossessed += 1;
+      aliveNeutrals += 1;
+      continue;
+    }
+
+    if (alignment === ALIGNMENT.IMPOSTOR) {
+      aliveImpostors += 1;
+    } else if (alignment === ALIGNMENT.INNOCENT) {
+      aliveInnocents += 1;
+    } else if (alignment === ALIGNMENT.NEUTRAL) {
+      aliveNeutrals += 1;
+    }
+  }
 
   return {
-    alivePlayers: alivePlayers.length,
+    aliveInnocents,
     aliveImpostors,
-    aliveInnocents
+    aliveNeutrals,
+    alivePossessed
   };
 }
 
@@ -1805,13 +2155,29 @@ function getWinCondition(room) {
 
   const counts = getAliveAlignmentCounts(room);
 
-  if (counts.aliveImpostors <= 0) {
+  if (counts.alivePossessed > 0 && counts.aliveInnocents <= 0 && counts.aliveImpostors <= 0) {
+    const possessed = room.players.find(player => {
+      return player.isAlive && player.roleKey === ROLE_KEY.POSSESSED;
+    });
+
+    if (possessed) {
+      room.neutralWinnerId = possessed.id;
+      room.neutralWinnerName = possessed.name;
+      room.neutralWinnerRoleName = possessed.roleName;
+    }
+
+    return {
+      winner: WINNER.NEUTRAL
+    };
+  }
+
+  if (counts.aliveImpostors <= 0 && counts.alivePossessed <= 0) {
     return {
       winner: WINNER.INNOCENTS
     };
   }
 
-  if (counts.aliveInnocents <= counts.aliveImpostors) {
+  if (counts.alivePossessed <= 0 && counts.aliveInnocents <= counts.aliveImpostors) {
     return {
       winner: WINNER.IMPOSTORS
     };
@@ -1922,13 +2288,13 @@ function buildPublicState(room) {
   };
 }
 
-function getPlayerRoleText(player) {
+function getPlayerRoleText(player, room = null) {
   const roleKey = getRoleKey(player);
   const roleDefinition =
     ROLE_DEFINITIONS[roleKey] ||
     ROLE_DEFINITIONS[ROLE_KEY.RESIDENT];
 
-  const actions = getResolvedPlayerActions(player);
+  const actions = getResolvedPlayerActions(player, room);
 
   return {
     roleMessage: roleDefinition.roleMessage || "",
@@ -1945,7 +2311,7 @@ function buildPrivateState(player, room) {
     : null;
 
   const playerVote = getPlayerVote(player, room);
-  const roleText = getPlayerRoleText(player);
+  const roleText = getPlayerRoleText(player, room);
 
   const canChooseVictim =
     room.phase === PHASE.NIGHT &&
@@ -1967,7 +2333,7 @@ function buildPrivateState(player, room) {
 
     roleName: player.roleName,
     roleMessage: roleText.roleMessage,
-    actions: getResolvedPlayerActions(player),
+    actions: getResolvedPlayerActions(player, room),
 
     // Campos legados para o Rive/client atual.
     // Fonte real: actions.
@@ -2099,6 +2465,10 @@ function getPlayerAlignment(player) {
     return ALIGNMENT.INNOCENT;
   }
 
+  if (alignment === ALIGNMENT.NEUTRAL) {
+    return ALIGNMENT.NEUTRAL;
+  }
+
   return ALIGNMENT.NONE;
 }
 
@@ -2116,7 +2486,7 @@ function getActivityDefinition(roleKey, actionCommand) {
   return ACTION_DEFINITIONS[actionId] || null;
 }
 
-function getResolvedPlayerActions(player) {
+function getResolvedPlayerActions(player, room = null) {
   const roleKey = getRoleKey(player);
   const roleDefinition =
     ROLE_DEFINITIONS[roleKey] ||
@@ -2136,13 +2506,13 @@ function getResolvedPlayerActions(player) {
       continue;
     }
 
-    result[slot] = buildClientActionDefinition(slot, definition);
+    result[slot] = buildClientActionDefinition(slot, definition, room);
   }
 
   return result;
 }
 
-function buildClientActionDefinition(slot, definition) {
+function buildClientActionDefinition(slot, definition, room = null) {
   const microgameCategory = definition.microgameCategory || "none";
   const microgameConfig =
     MICROGAME_CONFIG[microgameCategory] ||
@@ -2152,6 +2522,8 @@ function buildClientActionDefinition(slot, definition) {
       timeLimit: 0,
       difficulty: 0
     };
+
+  const difficultyBonus = getActiveMicrogameDifficultyBonus(room);
 
   return {
     slot,
@@ -2173,7 +2545,7 @@ function buildClientActionDefinition(slot, definition) {
       ? [...microgameConfig.pool]
       : [MICROGAME_ID.NONE],
     microgameTimeLimit: Number(microgameConfig.timeLimit || 0),
-    microgameDifficulty: Number(microgameConfig.difficulty || 0),
+    microgameDifficulty: Number(microgameConfig.difficulty || 0) + difficultyBonus,
 
     implemented: definition.implemented !== false,
     skipsMicrogame: Boolean(definition.skipsMicrogame)

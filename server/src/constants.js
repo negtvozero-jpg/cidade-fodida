@@ -35,12 +35,14 @@ const ROLE_KEY = {
   DETECTIVE: "detective",
   UNICORN: "unicorn",
   JOURNALIST: "journalist",
+  VIGILANTE: "vigilante",
+
+  KILLER: "killer",
   STALKER: "stalker",
+
   JOKER: "joker",
   INSTIGATOR: "instigator",
-
-  // Alias legado.
-  KILLER: "stalker"
+  POSSESSED: "possessed"
 };
 
 const WINNER = {
@@ -149,6 +151,12 @@ const MICROGAME_CONFIG = {
     pool: [MICROGAME_ID.GAME_1, MICROGAME_ID.GAME_2, MICROGAME_ID.GAME_3],
     timeLimit: 8,
     difficulty: 1
+  },
+
+  [MICROGAME_CATEGORY.ASSASSINATION]: {
+    pool: [MICROGAME_ID.GAME_3],
+    timeLimit: 7,
+    difficulty: 1
   }
 };
 
@@ -231,6 +239,35 @@ const POI_CONFIG = {
   }
 };
 
+const SABOTAGE_TYPE = {
+  BLACKOUT: "blackout",
+  MICROGAME_DIFFICULTY_UP: "microgameDifficultyUp",
+  CURSE: "curse"
+};
+
+const SABOTAGE_CONFIG = {
+  types: [
+    SABOTAGE_TYPE.BLACKOUT,
+    SABOTAGE_TYPE.MICROGAME_DIFFICULTY_UP,
+    SABOTAGE_TYPE.CURSE
+  ],
+
+  blackout: {
+    repairPoiCode: "red",
+    repairDelayNights: 1
+  },
+
+  microgameDifficultyUp: {
+    difficultyBonus: 1,
+    durationNights: 1
+  },
+
+  curse: {
+    cursedPlayerCount: 2,
+    repairPoiCode: "purple"
+  }
+};
+
 const ACTION_DEFINITIONS = {
   sleep: {
     id: "sleep",
@@ -280,6 +317,34 @@ const ACTION_DEFINITIONS = {
     intent: ACTION_INTENT.HOSTILE,
     label: "Assassinar ◆",
     description: "Escolha uma vitima para matar.",
+    energyCost: ENERGY_CONFIG.action1Cost,
+    energyGain: 0,
+    targetType: TARGET_TYPE.PLAYER,
+    microgameCategory: MICROGAME_CATEGORY.APPROACH,
+    implemented: true,
+    skipsMicrogame: false
+  },
+
+  vigilanteKill: {
+    id: "vigilanteKill",
+    actionClass: ACTION_CLASS.VISIT_PLAYER,
+    intent: ACTION_INTENT.HOSTILE,
+    label: "Executar ◆◆",
+    description: "Escolha uma vítima para matar.",
+    energyCost: ENERGY_CONFIG.action2Cost,
+    energyGain: 0,
+    targetType: TARGET_TYPE.PLAYER,
+    microgameCategory: MICROGAME_CATEGORY.APPROACH,
+    implemented: true,
+    skipsMicrogame: false
+  },
+
+  possessedKill: {
+    id: "possessedKill",
+    actionClass: ACTION_CLASS.VISIT_PLAYER,
+    intent: ACTION_INTENT.HOSTILE,
+    label: "Matar ◆",
+    description: "Escolha uma vítima para matar.",
     energyCost: ENERGY_CONFIG.action1Cost,
     energyGain: 0,
     targetType: TARGET_TYPE.PLAYER,
@@ -365,13 +430,13 @@ const ACTION_DEFINITIONS = {
     actionClass: ACTION_CLASS.SABOTAGE,
     intent: ACTION_INTENT.DECEPTIVE,
     label: "Sabotar ◆◆",
-    description: "Ainda não implementado.",
+    description: "Sorteia uma sabotagem contra o bairro.",
     energyCost: ENERGY_CONFIG.action2Cost,
     energyGain: 0,
     targetType: TARGET_TYPE.NONE,
     microgameCategory: MICROGAME_CATEGORY.CONTROL,
-    implemented: false,
-    skipsMicrogame: true
+    implemented: true,
+    skipsMicrogame: false
   }
 };
 
@@ -424,6 +489,30 @@ const ROLE_DEFINITIONS = {
     }
   },
 
+  vigilante: {
+    id: ROLE_KEY.VIGILANTE,
+    name: "Vigilante",
+    alignment: ALIGNMENT.INNOCENT,
+    roleMessage: "Escolha uma vítima durante a noite. Se matar um inocente, deixará pistas graves.",
+    actionSlots: {
+      action1: "stayHomeAwake",
+      action2: "vigilanteKill",
+      sleep: "sleep"
+    }
+  },
+
+  killer: {
+    id: ROLE_KEY.KILLER,
+    name: "Assassino",
+    alignment: ALIGNMENT.IMPOSTOR,
+    roleMessage: "Mate em casa ou sabote o bairro.",
+    actionSlots: {
+      action1: "killPlayer",
+      action2: "sabotage",
+      sleep: "sleep"
+    }
+  },
+
   stalker: {
     id: ROLE_KEY.STALKER,
     name: "Espreitador",
@@ -456,6 +545,17 @@ const ROLE_DEFINITIONS = {
     actionSlots: {
       action1: "stayHomeAwake",
       action2: "plantEvidence",
+      sleep: "sleep"
+    }
+  },
+
+  possessed: {
+    id: ROLE_KEY.POSSESSED,
+    name: "Possuído",
+    alignment: ALIGNMENT.NEUTRAL,
+    roleMessage: "Elimine inocentes e impostores para vencer sozinho.",
+    actionSlots: {
+      action1: "possessedKill",
       sleep: "sleep"
     }
   }
@@ -579,7 +679,10 @@ const CLUE_CONFIG = {
       missedHome: 92,
       protected: 92,
       specialAction: 90,
+      vigilanteGrave: 88,
       plantedEvidence: 85,
+      sabotage: 80,
+      curse: 60,
       targetHome: 75,
       targetPoi: 70,
       routePoi: 55,
@@ -730,6 +833,46 @@ const CLUE_CONFIG = {
       "Você plantou uma pista falsa contra {player}."
     ],
 
+    vigilanteKilledInnocent: [
+      "Pistas graves apontam que {actor} passou por {crimeScene}.",
+      "Há sinais fortes de que {actor} esteve perto de {targetHome}."
+    ],
+
+    sabotageBlackoutStarted: [
+      "As luzes do bairro foram apagadas."
+    ],
+
+    sabotageMicrogameDifficultyStarted: [
+      "Algo deixou as ações da próxima noite mais difíceis."
+    ],
+
+    sabotageCurseStarted: [
+      "Uma maldição caiu sobre parte do bairro."
+    ],
+
+    blackoutWeakenedClue: [
+      "A falta de luz tornou suas observações confusas.",
+      "Você percebeu movimentação durante o apagão, mas não conseguiu confirmar detalhes."
+    ],
+
+    curseTrueClue: [
+      "Você viu um fantasma repetindo uma pista: {clue}",
+      "Entre assombrações, uma imagem pareceu revelar: {clue}"
+    ],
+
+    curseFalseClue: [
+      "Você viu um fantasma em {place}, mas não sabe se era real.",
+      "Uma assombração parecia atravessar {place}."
+    ],
+
+    curseRemoved: [
+      "A maldição sobre você parece ter sido removida."
+    ],
+
+    blackoutRepaired: [
+      "Você passou a noite na Viela da ENEL e as luzes parecem voltar ao normal."
+    ],
+
     noUsefulClue: [
       "A noite passou sem pistas claras para você."
     ]
@@ -763,6 +906,8 @@ module.exports = {
   PLAYER_CONFIG,
   ENERGY_CONFIG,
   POI_CONFIG,
+  SABOTAGE_TYPE,
+  SABOTAGE_CONFIG,
   ACTION_DEFINITIONS,
   ROLE_DEFINITIONS,
   ACTIVITY_DEFINITIONS,
