@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Cidade Fodida MVP</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+
+<body>
+  <main id="starting-screen">
+    <canvas id="startingCanvas"></canvas>
+  </main>
+
+  <main id="game-screen">
+    <section id="village-section">
+      <canvas id="villageCanvas"></canvas>
+    </section>
+
+    <section id="player-section">
+      <canvas id="playerCanvas"></canvas>
+
+      <div id="microgame-layer" aria-hidden="true">
+        <canvas id="microgameCanvas"></canvas>
+      </div>
+    </section>
+  </main>
+
+  <input id="hiddenTextInput" type="text" autocomplete="off" />
+
+  <script src="https://unpkg.com/@rive-app/webgl2@2.38.3"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
