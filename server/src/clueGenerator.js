@@ -138,15 +138,9 @@ function generateActionClues({ room, action, actor, rng }) {
   const quality = getMicrogameQuality(action.microgameScore);
   const clues = [];
 
-  if (actionClass === ACTION_CLASS.REST) {
-    clues.push(privateClue(actor.id, template("quietNight", {}, rng), {
-      category: CLUE_CATEGORY.QUIET,
-      placeKey: `player:${actor.id}`,
-      priority: getCategoryPriority(CLUE_CATEGORY.QUIET)
-    }));
-
-    return clues;
-  }
+if (actionClass === ACTION_CLASS.REST) {
+  return clues;
+}
 
   if (actionClass === ACTION_CLASS.STAY_HOME_AWAKE) {
     clues.push(privateClue(actor.id, template("ownHomeObservation", {}, rng), {
@@ -766,8 +760,11 @@ function buildDetectiveClue({ room, action, rngSeed } = {}) {
 function buildJournalistPublishedClue({ room, action, rngSeed } = {}) {
   const rng = createRng(Number(rngSeed || action?.microgameSeed || Date.now()));
   const regionLabel = getActionRegionLabel(action);
+
   const detail = getMovementDetailsForRegion(room, action, {
-    includeActor: false
+    includeActor: false,
+    excludePlayerIds: [action.actorId],
+    excludeOwnerPlayerIds: [action.actorId]
   });
 
   const data = buildClueTemplateData(room, action, {
@@ -1059,10 +1056,14 @@ function getFirstRelevantRoadName({ target, poi }) {
 
 function getMovementDetailsForRegion(room, regionAction, options = {}) {
   const includeActor = Boolean(options.includeActor);
+  const excludePlayerIds = new Set(options.excludePlayerIds || []);
+  const excludeOwnerPlayerIds = new Set(options.excludeOwnerPlayerIds || []);
   const rng = createRng(Number(regionAction?.microgameSeed || Date.now()));
   const details = [];
 
-  const ownerStatus = getInvestigatedHomeOwnerStatus(room, regionAction, rng);
+  const ownerStatus = getInvestigatedHomeOwnerStatus(room, regionAction, rng, {
+  excludePlayerIds: excludeOwnerPlayerIds
+  });
 
   if (ownerStatus) {
     details.push(ownerStatus);
@@ -1076,6 +1077,10 @@ function getMovementDetailsForRegion(room, regionAction, options = {}) {
     }
 
     if (!includeActor && action.actorId === regionAction.actorId) {
+      continue;
+    }
+
+    if (excludePlayerIds.has(action.actorId)) {
       continue;
     }
 
@@ -1103,7 +1108,7 @@ function getMovementDetailsForRegion(room, regionAction, options = {}) {
   return details.filter(Boolean).join(" ");
 }
 
-function getInvestigatedHomeOwnerStatus(room, regionAction, rng) {
+function getInvestigatedHomeOwnerStatus(room, regionAction, rng, options = {}) {
   if (!regionAction?.targetPlayerId) {
     return "";
   }
@@ -1111,6 +1116,12 @@ function getInvestigatedHomeOwnerStatus(room, regionAction, rng) {
   const target = getPlayerById(room, regionAction.targetPlayerId);
 
   if (!target) {
+    return "";
+  }
+
+  const excludePlayerIds = new Set(options.excludePlayerIds || []);
+
+  if (excludePlayerIds.has(target.id)) {
     return "";
   }
 
