@@ -143,6 +143,7 @@ io.on("connection", socket => {
       neutralWinnerRoleName: "",
 
       sabotages: createDefaultSabotageState(),
+      dayResultAnnouncements: [],
 
       players: [player]
     };
@@ -831,6 +832,8 @@ function applySabotage(room, sabotageType, action) {
     rngSeed: Date.now() + Number(actor?.index || 0)
   });
 
+  appendDayResultAnnouncement(room, text);
+
   if (actor && text) {
     appendPrivateClue(room, actor.id, text);
   }
@@ -973,6 +976,7 @@ function assignRoles(room) {
   room.nightActions = {};
   room.lastActionErrorByPlayerId = {};
   room.sabotages = createDefaultSabotageState();
+  room.dayResultAnnouncements = [];
   resetRoomClues(room);
 
   const shuffledPlayers = shuffleArray(room.players);
@@ -1761,6 +1765,22 @@ function getActionRegionLabel(action) {
   }
 
   return "a região escolhida";
+}
+
+function appendDayResultAnnouncement(room, text) {
+  const announcement = String(text || "").trim();
+
+  if (!announcement) {
+    return;
+  }
+
+  if (!Array.isArray(room.dayResultAnnouncements)) {
+    room.dayResultAnnouncements = [];
+  }
+
+  if (!room.dayResultAnnouncements.includes(announcement)) {
+    room.dayResultAnnouncements.push(announcement);
+  }
 }
 
 function appendPrivateClue(room, playerId, text) {
@@ -2610,6 +2630,7 @@ function resetRoomClues(room) {
   room.publishedPublicClues = [];
   room.lastPublishedPublicClues = [];
   room.journalistPublicClues = [];
+  room.dayResultAnnouncements = [];
 }
 
 function clamp(value, min, max) {

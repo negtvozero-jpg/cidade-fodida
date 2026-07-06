@@ -434,12 +434,22 @@ function buildPrivateVotingCTA(playerVote) {
 
 function buildDayResultUpdate(room) {
   const votedOutName = getLastVotedOutName(room);
+  const resultText = votedOutName
+    ? TEXT.dayResult.votedOut(votedOutName)
+    : TEXT.dayResult.noElimination;
 
-  if (votedOutName) {
-    return TEXT.dayResult.votedOut(votedOutName);
-  }
+  return composeParagraphs([
+    resultText,
+    buildDayResultAnnouncementText(room)
+  ]);
+}
 
-  return TEXT.dayResult.noElimination;
+function buildDayResultAnnouncementText(room) {
+  const announcements = Array.isArray(room?.dayResultAnnouncements)
+    ? room.dayResultAnnouncements
+    : [];
+
+  return uniqueStrings(announcements).join("\n");
 }
 
 function buildPrivateDayResultMessage(_params) {
