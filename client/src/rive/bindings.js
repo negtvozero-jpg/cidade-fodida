@@ -21,6 +21,7 @@ export const VILLAGE_BINDINGS = [
   { type: "number", name: "phaseProgress", state: "phaseProgress" },
 
   { type: "string", name: "publicMessage", state: "publicMessage" },
+  { type: "string", name: "eventIndicatorsMessage", state: "eventIndicatorsMessage" },
 
   // Seleção de casas/jogadores.
   { type: "boolean", name: "selectionEnabled", state: "selectionEnabled" },
@@ -28,6 +29,7 @@ export const VILLAGE_BINDINGS = [
 
   // Seleção de POIs.
   { type: "boolean", name: "poiSelectionEnabled", state: "poiSelectionEnabled" },
+  { type: "boolean", name: "selfSelectionEnabled", state: "selfSelectionEnabled" },
   { type: "number", name: "selectedPoiIndex", state: "localSelectedPoiIndex" },
   { type: "string", name: "selectedPoiCode", state: "localSelectedPoiCode" },
   { type: "enum", name: "selectedPoiType", state: "localSelectedPoiType" },
@@ -71,6 +73,10 @@ export const PLAYER_BINDINGS = [
 
   // Fonte única de CTA/narrativa: server/src/messages.js.
   { type: "string", name: "privateMessage", state: "privateMessage" },
+  { type: "string", name: "playerEffectsMessage", state: "playerEffectsMessage" },
+  { type: "string", name: "effectLabels", state: "effectLabels" },
+  { type: "boolean", name: "hasParanoia", state: "hasParanoia" },
+  { type: "boolean", name: "isHaunted", state: "isHaunted" },
 
   { type: "boolean", name: "canStartGame", state: "canStartGame" },
 
@@ -111,7 +117,8 @@ export const MICROGAME_BINDINGS = [
 
   { type: "number", name: "seed", state: "microgameSeed" },
   { type: "number", name: "timeLimit", state: "microgameTimeLimit" },
-  { type: "number", name: "difficulty", state: "microgameDifficulty" }
+  { type: "number", name: "difficulty", state: "microgameDifficulty" },
+  { type: "number", name: "microgameScore", state: "microgameScore" }
 
   // Não coloque actionCommand/actionTrigger aqui.
   // Eles são canal de saída do microgame para o JS:

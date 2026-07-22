@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>cidade fodida — teste sem Rive</title>
+  <link rel="stylesheet" href="./html-ui.css" />
+</head>
+<body>
+  <main id="app" class="app-shell" data-phase="lobby">
+    <section id="publicPanel" class="public-panel" aria-label="Tela pública">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">bairro</div>
+          <h1 id="publicTitle">cidade fodida</h1>
+        </div>
+        <div class="room-pill" id="roomPill">sem sala</div>
+      </header>
+
+      <section id="lobbyCard" class="card lobby-card">
+        <h2>Entrada</h2>
+        <label>
+          Nome
+          <input id="playerNameInput" type="text" maxlength="24" placeholder="Jogador" autocomplete="off" />
+        </label>
+        <div class="split">
+          <button id="createRoomButton" class="primary">Criar sala</button>
+          <label>
+            Código
+            <input id="roomCodeInput" type="text" maxlength="3" placeholder="ABC" autocomplete="off" />
+          </label>
+          <button id="joinRoomButton">Entrar</button>
+        </div>
+        <button id="startGameButton" class="primary" disabled>Iniciar partida</button>
+        <p class="hint">Abra esta página em cada celular. Para testar só os minigames, use <a href="./minigames.html">/minigames.html</a>.</p>
+      </section>
+
+      <section id="transitionCard" class="transition-card hidden">
+        <div class="transition-title" id="transitionTitle">Amanheceu</div>
+        <div class="transition-subtitle" id="transitionSubtitle">notícia</div>
+        <pre id="transitionMessage"></pre>
+      </section>
+
+      <section id="mapCard" class="map-card" aria-label="Mapa do bairro">
+        <div class="map-status-line">
+          <span id="mapStatus">bairro</span>
+          <span id="mapCount">0 jogadores</span>
+        </div>
+        <div id="neighborhoodMap" class="neighborhood-map"></div>
+      </section>
+
+      <section id="gameOverCard" class="game-over-card hidden">
+        <div class="eyebrow">fim de jogo</div>
+        <h2 id="gameOverTitle">Fim</h2>
+        <pre id="gameOverMessage"></pre>
+      </section>
+
+      <section id="publicMessageCard" class="card public-message-card">
+        <div class="phase-line">
+          <span id="phaseLabel">Lobby</span>
+          <span id="timerLabel">--</span>
+        </div>
+        <pre id="publicMessage">Aguardando jogadores.</pre>
+      </section>
+
+      <section class="board-grid">
+        <div class="card">
+          <div class="section-title">Jogadores</div>
+          <div id="publicPlayers" class="player-list"></div>
+        </div>
+        <div class="card">
+          <div class="section-title">Locais</div>
+          <div id="publicPois" class="poi-list"></div>
+        </div>
+      </section>
+    </section>
+
+    <section id="privatePanel" class="private-panel" aria-label="Tela privada">
+      <header class="private-header">
+        <div>
+          <div class="eyebrow">privado</div>
+          <h2 id="privateIdentity">sem jogador</h2>
+        </div>
+        <button id="sheetToggle" class="ghost">Ficha</button>
+      </header>
+
+      <section id="roleReveal" class="role-reveal hidden" aria-live="polite">
+        <div class="eyebrow">seu papel</div>
+        <h2 id="revealRoleName">Você é —</h2>
+        <div id="revealAlignment" class="alignment-pill">—</div>
+        <p id="revealObjective"></p>
+        <button id="dismissRevealButton" class="primary">Entendi</button>
+      </section>
+
+      <section class="private-core">
+        <div class="energy-row">
+          <span>Energia</span>
+          <div id="energyPips" class="energy-pips"></div>
+        </div>
+
+        <pre id="privateMessage" class="private-message">Entre em uma sala.</pre>
+        <pre id="secondaryMessage" class="secondary-message hidden"></pre>
+
+        <div id="actionPanel" class="action-panel"></div>
+        <div id="votePanel" class="vote-panel hidden"></div>
+      </section>
+
+      <section id="hostSettingsCard" class="card host-settings-card hidden">
+        <div class="section-title">Configuração de teste</div>
+        <p class="hint">Só aparece para o host antes da partida começar. Use para testar ritmo, papéis e volume de pistas sem mexer no código.</p>
+
+        <div class="settings-grid">
+          <label>
+            Primeiro dia, leitura de papéis
+            <input id="settingFirstDaySeconds" type="number" min="20" max="240" step="5" />
+          </label>
+          <label>
+            Dia, discussão
+            <input id="settingDaySeconds" type="number" min="45" max="420" step="5" />
+          </label>
+          <label>
+            Noite, ações
+            <input id="settingNightSeconds" type="number" min="30" max="240" step="5" />
+          </label>
+          <label>
+            Resultado, transição
+            <input id="settingResultSeconds" type="number" min="5" max="60" step="5" />
+          </label>
+          <label>
+            Votação abre quando faltar % do dia
+            <input id="settingVotingOpensAtProgress" type="number" min="10" max="95" step="5" />
+          </label>
+          <label>
+            Pistas privadas máximas por noite
+            <input id="settingMaxPrivateClues" type="number" min="1" max="4" step="1" />
+          </label>
+        </div>
+
+        <div class="section-title settings-subtitle">Papéis no sorteio</div>
+        <div id="roleToggleList" class="role-toggle-list"></div>
+
+        <button id="applyHostSettingsButton" class="primary">Aplicar configurações</button>
+      </section>
+    </section>
+
+    <aside id="targetOverlay" class="modal hidden" aria-modal="true">
+      <div class="modal-card target-card">
+        <header>
+          <div>
+            <div class="eyebrow">seleção</div>
+            <h2 id="targetTitle">Escolha um alvo</h2>
+          </div>
+          <button id="cancelTargetButton" class="ghost">Cancelar</button>
+        </header>
+        <p id="targetHint" class="hint"></p>
+        <div id="targetTabs" class="tabs hidden">
+          <button data-tab="players" class="active">Casas</button>
+          <button data-tab="pois">Locais</button>
+        </div>
+        <div id="targetGrid" class="target-grid"></div>
+        <button id="confirmTargetButton" class="primary" disabled>Continuar</button>
+      </div>
+    </aside>
+
+    <aside id="roleGuessOverlay" class="modal hidden" aria-modal="true">
+      <div class="modal-card role-guess-card">
+        <header>
+          <div>
+            <div class="eyebrow">Vaticínio</div>
+            <h2>Chute o papel</h2>
+          </div>
+          <button id="cancelRoleGuessButton" class="ghost">Cancelar</button>
+        </header>
+        <p class="hint">Selecione o papel que você acha que o alvo possui. Acerto mata sem pistas comuns; erro mata você.</p>
+        <div id="roleGuessGrid" class="role-guess-grid"></div>
+        <button id="confirmRoleGuessButton" class="primary" disabled>Confirmar e jogar</button>
+      </div>
+    </aside>
+
+    <aside id="microgameOverlay" class="modal hidden microgame-modal" aria-modal="true">
+      <div class="modal-card microgame-card">
+        <header>
+          <div>
+            <div id="microgameCategoryLabel" class="eyebrow">microgame</div>
+            <h2 id="microgameTitle">Preparar</h2>
+          </div>
+          <div id="microgameTimer" class="timer-chip">--</div>
+        </header>
+        <p id="microgamePurpose" class="hint"></p>
+        <div id="microgameStage" class="microgame-stage"></div>
+        <footer class="microgame-footer">
+          <span id="microgameScoreLabel">Score: —</span>
+          <button id="forceFinishMicrogameButton" class="ghost">Encerrar teste</button>
+        </footer>
+      </div>
+    </aside>
+
+    <aside id="detailsSheet" class="details-sheet collapsed" aria-label="Ficha e referência">
+      <div id="sheetHandle" class="sheet-handle"></div>
+      <div class="sheet-content">
+        <section>
+          <div class="eyebrow">ficha</div>
+          <h2 id="sheetRoleName">—</h2>
+          <p id="sheetRoleGoal">—</p>
+          <div id="sheetAbilities" class="ability-list"></div>
+        </section>
+        <section>
+          <div class="eyebrow">arquétipos de microgame</div>
+          <div id="archetypeList" class="archetype-list"></div>
+        </section>
+      </div>
+    </aside>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="./src/html-ui.js"></script>
+</body>
+</html>

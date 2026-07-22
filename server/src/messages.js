@@ -1,53 +1,12 @@
-const {
-  PHASE,
-  WINNER,
-  VOTE_TYPE,
-  TARGET_TYPE,
-  ACTION_CLASS,
-  POI_CONFIG,
-  MIN_PLAYERS_TO_START
-} = require("./constants");
-
-// ============================================================
-// MESSAGES.JS
-// ============================================================
-//
-// Fonte única de mensagens narrativas:
-//
-// - publicMessage
-// - privateMessage
-// - gameOverMessage
-//
-// O client/main.js não deve escrever mensagens narrativas.
-// O Rive deve apenas exibir o texto recebido.
-//
-// Regras atuais:
-//
-// 1. Não usar mensagem do tipo "você é tal papel".
-// 2. Noite:
-//    - primeiro parágrafo: informação importante, se houver
-//    - segundo parágrafo: CTA
-// 3. Resolução da noite:
-//    - pistas e atualizações da noite anterior
-//    - sem CTA
-// 4. Dia:
-//    - pistas da noite anterior
-//    - CTA do dia
-// 5. Resolução do dia:
-//    - informações importantes
-//    - sem CTA por enquanto
-//
-// ============================================================
-
-
-// ============================================================
-// TEXTOS EDITÁVEIS
-// ============================================================
+const CONFIG = require("./config");
+const { PHASE, WINNER, TARGET_TYPE, ACTION_CLASS, ROLE_KEY } = require("./constants");
+const { getActivePublicEffectReminders } = require("./game/effectResolver");
+const { getPoiByCode } = require("./data/map");
 
 const TEXT = {
   lobby: {
     public: "Aguardando jogadores.",
-    publicMinPlayers: (minPlayers) => `Precisa de pelo menos ${minPlayers} jogadores.`,
+    publicMinPlayers: (min) => `Precisa de pelo menos ${min} jogadores.`,
     privateHost: "",
     privatePlayer: ""
   },
@@ -69,7 +28,14 @@ const TEXT = {
     killPlayer: (action) => `Você escolheu atacar ${formatPlayerName(action.targetPlayerName)}.`,
     vigilanteKill: (action) => `Você escolheu atacar ${formatPlayerName(action.targetPlayerName)}.`,
     possessedKill: (action) => `Você escolheu atacar ${formatPlayerName(action.targetPlayerName)}.`,
+    possessedCondemn: (action) => `Você tentou condenar ${formatPlayerName(action.targetPlayerName)}.`,
+    possessedSynergy: "Você tentou abrir sinergia com sua linhagem.",
+    lithomancerGuess: (action) => `Você usou Vaticínio contra ${formatPlayerName(action.targetPlayerName)} como ${action.guessedRoleName || "um papel"}.`,
+    bountyKill: (action) => `Você escolheu atacar ${formatPlayerName(action.targetPlayerName)}.`,
+    obsessorMark: (action) => `Você marcou ${formatPlayerName(action.targetPlayerName)}.`,
+    mediumSensePresence: (action) => `Você tentou sentir presenças em ${formatActionRegion(action)}.`,
     investigateRegion: (action) => `Você decidiu investigar ${formatActionRegion(action)}.`,
+    bountyInvestigateRegion: (action) => `Você decidiu investigar ${formatActionRegion(action)}.`,
     protectPlayer: (action) => (
       action.targetPlayerId === action.actorId
         ? "Você decidiu se proteger."
@@ -77,17 +43,21 @@ const TEXT = {
     ),
     publishRegionClue: (action) => `Você decidiu apurar informações em ${formatActionRegion(action)}.`,
     stalkPoi: (action) => `Você decidiu espreitar ${formatPoiName(action.targetPoiCode)}.`,
-    plantEvidence: (action) => `Você decidiu plantar uma prova contra ${formatPlayerName(action.targetPlayerName)}.`,
+    plantEvidence: "Você decidiu plantar uma prova contra seu alvo.",
+    cultistRitualStep: (action) => `Você tentou preparar o ritual em ${formatPoiName(action.targetPoiCode)}.`,
     sabotage: "Você tentou sabotar a vila.",
-    fallback: (action) => `Você confirmou: ${action.actionLabel || action.actionId || action.actionCommand}.`
-  },
-
-  energy: {
-    insufficient: "Energia insuficiente para essa ação."
+    fallback: (action) => `Você confirmou: ${action.label || action.actionId || action.actionCommand}.`
   },
 
   neutral: {
-    instigatorTarget: (name) => `Seu alvo é ${formatPlayerName(name)}.`
+    instigatorTarget: (name) => `Seu alvo é ${formatPlayerName(name)}.`,
+    lawyerClient: (name) => `Seu cliente é ${formatPlayerName(name)}. Se ele morrer, você morre junto; se ele vencer, você vence junto.`,
+    bountyTargetRole: (roleName) => `Seu alvo tem o papel: ${roleName || "desconhecido"}.`,
+    possessedGoal: (hasUsedCondemn) => hasUsedCondemn
+      ? "Você já condenou alguém. Vença chegando aos 2 últimos ou com sua linhagem entre os 4 últimos sem impostores vivos."
+      : "Condene alguém e sobreviva. Sua linhagem vence nos 2 últimos, ou entre os 4 últimos sem impostores vivos.",
+    condemnedGoal: "Você é Condenado. Vença junto da linhagem do Possuído.",
+    cultistProgress: (progress, goal, poiName) => `Ritual: ${progress}/${goal}. Próxima etapa: ${poiName}.`
   },
 
   nightResult: {
@@ -96,18 +66,17 @@ const TEXT = {
   },
 
   day: {
-    firstDayCta: "Converse com os outros jogadores.",
+    firstDayCta: "Primeiro dia: confira seu papel, alinhamento, objetivo e habilidades. Não há votação.",
     discussionCta: "Converse com os outros jogadores.",
     votingCta: "Vote em alguém ou pule."
   },
 
   dayResult: {
-    votedOut: (name) => `${name} foi eliminado pela votação.`,
+    votedOut: (name) => `${name} ${String(name || "").includes(",") ? "foram eliminados" : "foi eliminado"} pela votação.`,
     noElimination: "Ninguém foi eliminado pela votação."
   },
 
   vote: {
-    prompt: "Vote em alguém ou pule.",
     skipped: "Você escolheu pular o voto.",
     selectedTarget: (name) => `Você votou em ${name}.`,
     waiting: "Aguarde os outros jogadores."
@@ -116,610 +85,240 @@ const TEXT = {
   gameOver: {
     fallback: "Fim de jogo.",
     innocentsWin: "Os inocentes venceram.",
-    impostorsWin: "O impostor venceu.",
-    neutralWin: "Um neutro venceu."
+    impostorsWin: "Os impostores venceram.",
+    neutralWin: (name) => name ? `${name} venceu.` : "Um neutro venceu.",
+    alliedWinners: (names) => names ? `Também venceram: ${names}.` : ""
   }
 };
 
-
-// ============================================================
-// API
-// ============================================================
-
-function buildGameOverMessage(winner) {
-  if (winner === WINNER.INNOCENTS) {
-    return TEXT.gameOver.innocentsWin;
-  }
-
-  if (winner === WINNER.IMPOSTORS) {
-    return TEXT.gameOver.impostorsWin;
-  }
-
-  if (winner === WINNER.NEUTRAL) {
-    return TEXT.gameOver.neutralWin;
-  }
-
-  return TEXT.gameOver.fallback;
-}
-
-function buildPublicMessage({
-  room,
-  votingAllowed = false,
-  voteSummary = null
-} = {}) {
-  if (!room) {
-    return "";
-  }
+function buildPublicMessage({ room, votingAllowed = false, voteSummary = null } = {}) {
+  if (!room) return "";
 
   if (room.phase === PHASE.LOBBY) {
-    const playerCount = getAliveOrTotalPlayerCount(room);
-
-    if (playerCount < MIN_PLAYERS_TO_START) {
-      return TEXT.lobby.publicMinPlayers(MIN_PLAYERS_TO_START);
-    }
-
-    return TEXT.lobby.public;
+    return room.players.length < CONFIG.room.minPlayersToStart
+      ? TEXT.lobby.publicMinPlayers(CONFIG.room.minPlayersToStart)
+      : TEXT.lobby.public;
   }
 
   if (room.phase === PHASE.NIGHT) {
-    return composeParagraphs([
-      getImportantPublicNightInfo(room),
-      TEXT.night.public
-    ]);
+    return TEXT.night.public;
   }
 
   if (room.phase === PHASE.NIGHT_RESULT) {
     return composeParagraphs([
-      buildPublishedPublicClueText(room),
-      buildNightResultUpdate(room)
+      buildNightResultUpdate(room),
+      buildPublicPublishedClues(room),
+      buildNightResultAnnouncements(room)
     ]);
   }
 
   if (room.phase === PHASE.DAY) {
+    if (room.dayNumber <= 1) {
+      return TEXT.day.firstDayCta;
+    }
+
     return composeParagraphs([
-      buildPublishedPublicClueText(room),
+      buildNightResultUpdate(room),
+      buildPublicPublishedClues(room),
       buildDayCTA(room, votingAllowed, voteSummary)
     ]);
   }
 
   if (room.phase === PHASE.DAY_RESULT) {
-    return buildDayResultUpdate(room);
+    return composeParagraphs([
+      buildDayResultUpdate(room),
+      ...getActivePublicEffectReminders(room)
+    ]);
   }
 
   if (room.phase === PHASE.GAME_OVER) {
-    return buildGameOverMessage(room.winner);
+    return buildGameOverMessage(room.winner, room);
   }
 
   return "";
 }
 
-function buildPrivateMessage({
-  player,
-  room,
-  votingAllowed = false,
-  playerVote = null
-} = {}) {
-  if (!player || !room) {
-    return "";
-  }
+function buildPrivateMessage({ player, room, votingAllowed = false, playerVote = null } = {}) {
+  if (!player || !room) return "";
 
   if (room.phase === PHASE.LOBBY) {
     return player.isHost ? TEXT.lobby.privateHost : TEXT.lobby.privatePlayer;
   }
 
   if (room.phase === PHASE.NIGHT) {
-    return buildPrivateNightMessage({
-      player,
-      room
-    });
+    return buildPrivateNightMessage(player, room);
   }
 
   if (room.phase === PHASE.NIGHT_RESULT) {
     return composeParagraphs([
-      buildPrivateClueText(player, room),
-      buildPrivateNightUpdate(player, room)
+      buildPrivateClues(player, room),
+      buildEffectMarkerText(player),
+      buildNeutralPrivateInfo(player)
     ]);
   }
 
   if (room.phase === PHASE.DAY) {
-    return buildPrivateDayMessage({
-      player,
-      room,
-      votingAllowed,
-      playerVote
-    });
+    return composeParagraphs([
+      buildPrivateClues(player, room),
+      buildEffectMarkerText(player),
+      buildDayPrivateCTA(player, room, votingAllowed, playerVote)
+    ]);
   }
 
   if (room.phase === PHASE.DAY_RESULT) {
-    return buildPrivateDayResultMessage({
-      player,
-      room
-    });
-  }
-
-  if (room.phase === PHASE.GAME_OVER) {
-    return "";
+    return composeParagraphs([
+      buildEffectMarkerText(player)
+    ]);
   }
 
   return "";
 }
 
+function buildPrivateNightMessage(player, room) {
+  if (!player.isAlive) return TEXT.night.dead;
 
-// ============================================================
-// NOITE
-// ============================================================
+  const action = room.nightActions[player.id];
 
-function buildPrivateNightMessage({ player, room }) {
-  if (!isPlayerAlive(player)) {
-    return TEXT.night.dead;
+  if (action) {
+    return composeParagraphs([
+      buildActionConfirmation(action),
+      buildNeutralPrivateInfo(player),
+      TEXT.night.waitingCta
+    ]);
   }
-
-  const importantInfo = composeParagraphs([
-    getImportantPrivateNightInfo(player, room),
-    buildActionConfirmation(player, room)
-  ]);
 
   return composeParagraphs([
-    importantInfo,
-    getNightCTA(player, room)
+    buildNeutralPrivateInfo(player),
+    TEXT.night.actionCta
   ]);
 }
 
-function getNightCTA(player, _room) {
-  const pendingTargetType =
-    player.pendingTargetType ||
-    player.selectedTargetType ||
-    "";
-
-  if (hasSubmittedNightAction(player, _room)) {
-    return TEXT.night.waitingCta;
-  }
-
-  if (pendingTargetType === TARGET_TYPE.PLAYER) {
-    return TEXT.night.targetPlayerCta;
-  }
-
-  if (pendingTargetType === TARGET_TYPE.POI) {
-    return TEXT.night.targetPoiCta;
-  }
-
-  if (pendingTargetType === TARGET_TYPE.REGION) {
-    return TEXT.night.targetRegionCta;
-  }
-
-  return TEXT.night.actionCta;
+function buildActionConfirmation(action) {
+  const handler = TEXT.actionConfirmations[action.id] || TEXT.actionConfirmations[action.actionClass] || TEXT.actionConfirmations.fallback;
+  return typeof handler === "function" ? handler(action) : handler;
 }
-
-function buildActionConfirmation(player, room) {
-  const action = room.nightActions?.[player.id];
-
-  if (!action) {
-    return "";
-  }
-
-  const formatter =
-    TEXT.actionConfirmations[action.actionId] ||
-    TEXT.actionConfirmations[action.actionClass] ||
-    TEXT.actionConfirmations[action.actionCommand] ||
-    TEXT.actionConfirmations.fallback;
-
-  if (typeof formatter === "function") {
-    return formatter(action);
-  }
-
-  return formatter || "";
-}
-
-function hasSubmittedNightAction(player, room) {
-  return Boolean(room?.nightActions?.[player.id]);
-}
-
-function getImportantPublicNightInfo(_room) {
-  return "";
-}
-
-function getImportantPrivateNightInfo(player, room) {
-  const parts = [];
-  const lastError = room.lastActionErrorByPlayerId?.[player.id] || "";
-
-  if (lastError === "NOT_ENOUGH_ENERGY") {
-    parts.push(TEXT.energy.insufficient);
-  }
-
-  if (player.neutralTargetName) {
-    parts.push(TEXT.neutral.instigatorTarget(player.neutralTargetName));
-  }
-
-  return composeParagraphs(parts);
-}
-
-
-// ============================================================
-// RESOLUÇÃO DA NOITE
-// ============================================================
 
 function buildNightResultUpdate(room) {
-  const victimName = getLastVictimName(room);
-
-  if (victimName) {
-    return TEXT.nightResult.death(victimName);
+  if (!room.hasVictim || !room.lastVictimName) {
+    return TEXT.nightResult.noDeath;
   }
 
-  return TEXT.nightResult.noDeath;
+  return TEXT.nightResult.death(room.lastVictimName);
 }
 
-function buildPrivateNightUpdate(_player, _room) {
-  return "";
+function buildPublicPublishedClues(room) {
+  return (room.lastPublishedPublicClues || []).join("\n");
 }
 
+function buildNightResultAnnouncements(room) {
+  return (room.nightResultAnnouncements || []).join("\n");
+}
 
-// ============================================================
-// DIA
-// ============================================================
-
-function buildPrivateDayMessage({
-  player,
-  room,
-  votingAllowed,
-  playerVote
-}) {
-  const clueText = buildPrivateClueText(player, room);
-
-  if (!isPlayerAlive(player)) {
-    return clueText;
-  }
-
-  const cta = votingAllowed
-    ? buildPrivateVotingCTA(playerVote)
-    : buildDiscussionCTA(room);
-
-  return composeParagraphs([
-    clueText,
-    cta
-  ]);
+function buildPrivateClues(player, room) {
+  return (room.lastNightPrivateCluesByPlayerId?.[player.id] || []).join("\n");
 }
 
 function buildDayCTA(room, votingAllowed, voteSummary) {
-  if (votingAllowed) {
-    return composeInline([
-      TEXT.day.votingCta,
-      formatVoteCounter(voteSummary)
-    ]);
-  }
-
-  if (room.dayNumber <= 1) {
-    return TEXT.day.firstDayCta;
-  }
-
-  return TEXT.day.discussionCta;
+  if (votingAllowed) return composeInline([TEXT.day.votingCta, formatVoteCounter(voteSummary)]);
+  return room.dayNumber <= 1 ? TEXT.day.firstDayCta : TEXT.day.discussionCta;
 }
 
-function buildDiscussionCTA(_room) {
-  return TEXT.day.discussionCta;
+function buildDayPrivateCTA(player, room, votingAllowed, vote) {
+  if (!player.isAlive) return "";
+
+  if (!votingAllowed) return room.dayNumber <= 1 ? TEXT.day.firstDayCta : TEXT.day.discussionCta;
+
+  if (!vote) return TEXT.day.votingCta;
+  if (vote.type === "skip") return composeParagraphs([TEXT.vote.skipped, TEXT.vote.waiting]);
+
+  const target = room.players.find(player => player.id === vote.targetId);
+  return composeParagraphs([TEXT.vote.selectedTarget(target?.name || "alguém"), TEXT.vote.waiting]);
 }
-
-function buildPrivateVotingCTA(playerVote) {
-  if (!playerVote) {
-    return TEXT.vote.prompt;
-  }
-
-  if (playerVote.type === VOTE_TYPE.SKIP || playerVote.voteSkip === true) {
-    return composeParagraphs([
-      TEXT.vote.skipped,
-      TEXT.vote.waiting
-    ]);
-  }
-
-  const name =
-    playerVote.targetName ||
-    playerVote.targetPlayerName ||
-    playerVote.name ||
-    playerVote.target?.name ||
-    "";
-
-  if (name) {
-    return composeParagraphs([
-      TEXT.vote.selectedTarget(name),
-      TEXT.vote.waiting
-    ]);
-  }
-
-  return TEXT.vote.waiting;
-}
-
-
-// ============================================================
-// RESOLUÇÃO DO DIA
-// ============================================================
 
 function buildDayResultUpdate(room) {
-  const votedOutName = getLastVotedOutName(room);
-  const resultText = votedOutName
-    ? TEXT.dayResult.votedOut(votedOutName)
-    : TEXT.dayResult.noElimination;
-
-  return composeParagraphs([
-    resultText,
-    buildDayResultAnnouncementText(room)
-  ]);
+  if (room.dayNumber <= 1) return "O primeiro dia terminou. A noite vai começar.";
+  if (room.hasVotedOut && room.lastVotedOutName) return TEXT.dayResult.votedOut(room.lastVotedOutName);
+  return TEXT.dayResult.noElimination;
 }
 
-function buildDayResultAnnouncementText(room) {
-  const announcements = Array.isArray(room?.dayResultAnnouncements)
-    ? room.dayResultAnnouncements
-    : [];
-
-  return uniqueStrings(announcements).join("\n");
+function buildEffectMarkerText(player) {
+  return (player.effects || [])
+    .map(effect => CONFIG.effects[effect.id]?.privateMessage || "")
+    .filter(Boolean)
+    .join("\n");
 }
 
-function buildPrivateDayResultMessage(_params) {
+function buildNeutralPrivateInfo(player) {
+  if (player.roleId === ROLE_KEY.INSTIGATOR && player.neutralTargetId) {
+    return TEXT.neutral.instigatorTarget(player.neutralTargetName || "seu alvo");
+  }
+
+  if (player.roleId === ROLE_KEY.LAWYER && player.neutralTargetId) {
+    return TEXT.neutral.lawyerClient(player.neutralTargetName || "seu cliente");
+  }
+
+  if (player.roleId === ROLE_KEY.BOUNTY_HUNTER && player.neutralTargetRoleName) {
+    return TEXT.neutral.bountyTargetRole(player.neutralTargetRoleName);
+  }
+
+  if (player.roleId === ROLE_KEY.POSSESSED) {
+    return TEXT.neutral.possessedGoal(Boolean(player.hasUsedCondemn));
+  }
+
+  if (player.roleId === ROLE_KEY.CONDEMNED) {
+    return TEXT.neutral.condemnedGoal;
+  }
+
+  if (player.roleId === ROLE_KEY.CULTIST) {
+    const progress = Number(player.cultistRitualProgress || 0);
+    const goal = 4;
+    const nextPoiCode = player.cultistRitualPoiCodes?.[progress] || "";
+    const nextPoiName = getPoiByCode(nextPoiCode)?.displayName || "desconhecida";
+    return TEXT.neutral.cultistProgress(progress, goal, nextPoiName);
+  }
+
   return "";
 }
 
-
-// ============================================================
-// PISTAS
-// ============================================================
-
-function buildPublishedPublicClueText(room) {
-  const clues = getPublishedPublicClues(room);
-
-  if (clues.length <= 0) {
-    return "";
-  }
-
-  return clues.join("\n");
-}
-
-function buildPrivateClueText(player, room) {
-  const clues = getPrivateClues(player, room);
-
-  if (clues.length <= 0) {
-    return "";
-  }
-
-  return clues.join("\n");
-}
-
-function getPublishedPublicClues(room) {
-  const result = [];
-
-  // Pistas comuns da noite não entram no publicMessage.
-  // Estes campos ficam reservados para habilidades futuras como jornalista.
-  appendStringArray(result, room.publishedPublicClues);
-  appendStringArray(result, room.lastPublishedPublicClues);
-  appendStringArray(result, room.journalistPublicClues);
-
-  if (room.clues && Array.isArray(room.clues.published)) {
-    appendStringArray(result, room.clues.published);
-  }
-
-  if (Array.isArray(room.clues)) {
-    for (const clue of room.clues) {
-      if (!clue) continue;
-
-      const visibility = clue.visibility || clue.type || "";
-      const text = clue.text || clue.message || "";
-
-      if ((visibility === "published" || visibility === "journalist") && text) {
-        result.push(String(text));
-      }
-    }
-  }
-
-  return uniqueStrings(result);
-}
-
-function getPrivateClues(player, room) {
-  const result = [];
-  const playerId = player.id || player.playerId || "";
-
-  if (!playerId) {
-    return result;
-  }
-
-  if (room.privateCluesByPlayerId) {
-    appendStringArray(result, room.privateCluesByPlayerId[playerId]);
-  }
-
-  if (room.lastNightPrivateCluesByPlayerId) {
-    appendStringArray(result, room.lastNightPrivateCluesByPlayerId[playerId]);
-  }
-
-  if (room.privateClues) {
-    appendStringArray(result, room.privateClues[playerId]);
-  }
-
-  if (room.clues && room.clues.private) {
-    appendStringArray(result, room.clues.private[playerId]);
-  }
-
-  if (Array.isArray(room.clues)) {
-    for (const clue of room.clues) {
-      if (!clue) continue;
-
-      const visibility = clue.visibility || clue.type || "";
-      const targetPlayerId =
-        clue.playerId ||
-        clue.targetPlayerId ||
-        clue.recipientId ||
-        clue.possibleRecipientId ||
-        "";
-
-      const text = clue.text || clue.message || "";
-
-      if (visibility === "private" && targetPlayerId === playerId && text) {
-        result.push(String(text));
-      }
-    }
-  }
-
-  return uniqueStrings(result);
-}
-
-
-// ============================================================
-// FORMATADORES
-// ============================================================
-
-function formatVoteCounter(voteSummary) {
-  if (!voteSummary) {
-    return "";
-  }
-
-  const submitted = Number(
-    voteSummary.submittedVoteCount ??
-    voteSummary.submitted ??
-    0
-  );
-
-  const eligible = Number(
-    voteSummary.eligibleVoteCount ??
-    voteSummary.eligible ??
-    0
-  );
-
-  const skip = Number(
-    voteSummary.skipVoteCount ??
-    voteSummary.skip ??
-    0
-  );
-
-  const parts = [];
-
-  if (eligible > 0) {
-    parts.push(`${submitted}/${eligible} votos`);
-  }
-
-  if (skip > 0) {
-    parts.push(`${skip} pularam`);
-  }
-
-  return parts.join(". ");
-}
-
-function formatPoiName(code) {
-  const poi = POI_CONFIG.definitions[String(code || "")];
-  return poi?.visibleName || code || "o ponto escolhido";
-}
-
-function formatPlayerName(name) {
-  return String(name || "o jogador escolhido");
+function buildGameOverMessage(winner, room = {}) {
+  const alliedWinners = (room.alliedWinnerNames || []).join(", ");
+  const suffix = alliedWinners ? `\n${TEXT.gameOver.alliedWinners(alliedWinners)}` : "";
+  if (winner === WINNER.INNOCENTS) return `${TEXT.gameOver.innocentsWin}${suffix}`;
+  if (winner === WINNER.IMPOSTORS) return `${TEXT.gameOver.impostorsWin}${suffix}`;
+  if (winner === WINNER.NEUTRAL) return `${TEXT.gameOver.neutralWin(room.neutralWinnerName)}${suffix}`;
+  return TEXT.gameOver.fallback;
 }
 
 function formatActionRegion(action) {
-  if (action?.targetPoiCode) {
-    return formatPoiName(action.targetPoiCode);
-  }
+  if (action.targetPlayerName) return `a casa de ${formatPlayerName(action.targetPlayerName)}`;
+  if (action.targetPoiCode) return formatPoiName(action.targetPoiCode);
+  return "uma região";
+}
 
-  if (action?.targetPlayerName) {
-    return `a região da casa de ${formatPlayerName(action.targetPlayerName)}`;
-  }
+function formatPoiName(code) {
+  return getPoiByCode(code)?.displayName || code || "um ponto de interesse";
+}
 
-  return "a região escolhida";
+function formatPlayerName(name) {
+  return String(name || "alguém");
+}
+
+function formatVoteCounter(voteSummary) {
+  if (!voteSummary) return "";
+  if (!voteSummary.eligibleVoteCount) return "";
+  return `${voteSummary.submittedVoteCount}/${voteSummary.eligibleVoteCount} votos.`;
 }
 
 function composeParagraphs(parts) {
-  return parts
-    .map((part) => String(part || "").trim())
-    .filter(Boolean)
-    .join("\n\n");
+  return parts.map(part => String(part || "").trim()).filter(Boolean).join("\n\n");
 }
 
 function composeInline(parts) {
-  return parts
-    .map((part) => String(part || "").trim())
-    .filter(Boolean)
-    .join(" ");
+  return parts.map(part => String(part || "").trim()).filter(Boolean).join(" ");
 }
-
-function appendStringArray(target, value) {
-  if (!Array.isArray(value)) {
-    return;
-  }
-
-  for (const item of value) {
-    const text = String(item || "").trim();
-
-    if (text) {
-      target.push(text);
-    }
-  }
-}
-
-function uniqueStrings(values) {
-  const seen = new Set();
-  const result = [];
-
-  for (const value of values) {
-    const text = String(value || "").trim();
-
-    if (!text || seen.has(text)) {
-      continue;
-    }
-
-    seen.add(text);
-    result.push(text);
-  }
-
-  return result;
-}
-
-
-// ============================================================
-// ROOM / PLAYER HELPERS
-// ============================================================
-
-function getAliveOrTotalPlayerCount(room) {
-  if (!Array.isArray(room.players)) {
-    return 0;
-  }
-
-  return room.players.length;
-}
-
-function isPlayerAlive(player) {
-  return Boolean(player.isAlive ?? player.alive ?? true);
-}
-
-function getLastVictimName(room) {
-  if (room.lastVictimName) {
-    return String(room.lastVictimName);
-  }
-
-  if (room.lastVictim && room.lastVictim.name) {
-    return String(room.lastVictim.name);
-  }
-
-  if (room.nightResult && room.nightResult.victimName) {
-    return String(room.nightResult.victimName);
-  }
-
-  return "";
-}
-
-function getLastVotedOutName(room) {
-  if (room.lastVotedOutName) {
-    return String(room.lastVotedOutName);
-  }
-
-  if (room.lastVotedOut && room.lastVotedOut.name) {
-    return String(room.lastVotedOut.name);
-  }
-
-  if (room.dayResult && room.dayResult.votedOutName) {
-    return String(room.dayResult.votedOutName);
-  }
-
-  return "";
-}
-
-
-// ============================================================
-// EXPORT
-// ============================================================
 
 module.exports = {
+  TEXT,
   buildPublicMessage,
   buildPrivateMessage,
   buildGameOverMessage

@@ -38,6 +38,7 @@ const RIVE_SRC = "./game.riv";
 const ARTBOARD_STARTING = "Starting";
 const ARTBOARD_VILLAGE = "Village";
 const ARTBOARD_PLAYER = "Player";
+const ARTBOARD_ROLE_SELECTION = "Role";
 const STATE_MACHINE = "State Machine 1";
 
 const MICROGAME_ARTBOARDS = {
@@ -113,6 +114,38 @@ const POI_NAMES = {
   red: "Viela"
 };
 
+const LITHOMANCER_GUESS_ACTION_CLASS = "lithomancerGuess";
+const THIEF_ROB_ACTION_CLASS = "thiefRob";
+const ACTIVITY_OVERLAY = {
+  NONE: "none",
+  MICROGAME: "microgame",
+  ROLE_SELECTION: "roleSelection"
+};
+
+const ROLE_GUESS_OPTIONS = [
+  ["resident", "Morador"],
+  ["detective", "Detetive"],
+  ["medium", "Medium"],
+  ["unicorn", "Unicórnio"],
+  ["journalist", "Jornalista"],
+  ["vigilante", "Vigilante"],
+  ["killer", "Assassino"],
+  ["stalker", "Espreitador"],
+  ["obsessor", "Obsessor"],
+  ["metamorph", "Metamorfo"],
+  ["illusionist", "Ilusionista"],
+  ["occultist", "Ocultista"],
+  ["hypnotist", "Hipnotizador"],
+  ["lithomancer", "Litomante"],
+  ["joker", "Coringa"],
+  ["instigator", "Instigador"],
+  ["lawyer", "Advogado"],
+  ["possessed", "Possuído"],
+  ["condemned", "Condenado"],
+  ["bountyHunter", "Caçador de Recompensas"],
+  ["cultist", "Cultista"]
+].map(([id, name], index) => ({ index: index + 1, id, name }));
+
 const riveRuntime = window.rive;
 const ioRuntime = window.io;
 
@@ -135,6 +168,7 @@ let microgameTriggersBound = false;
 let activeEditMode = EDIT_MODE.NONE;
 let pendingActivity = null;
 let activeMicrogameArtboard = "";
+let activeActivityOverlay = ACTIVITY_OVERLAY.NONE;
 
 const clientState = {
   screen: "starting",
@@ -158,6 +192,12 @@ const clientState = {
 
   publicMessage: "",
   privateMessage: "",
+
+  playerEffectsMessage: "",
+  eventIndicatorsMessage: "",
+  effectLabels: "",
+  hasParanoia: false,
+  isHaunted: false,
 
   roleName: "",
   roleMessage: "",
@@ -356,12 +396,6 @@ function loadPlayerRive() {
 }
 
 function loadMicrogameRive(microgameId) {
-  if (!els.microgameCanvas) {
-    console.warn("[MICROGAME] #microgameCanvas não existe no HTML.");
-    hideMicrogameLayer();
-    return;
-  }
-
   const artboard = MICROGAME_ARTBOARDS[microgameId];
 
   if (!artboard) {
@@ -370,8 +404,31 @@ function loadMicrogameRive(microgameId) {
     return;
   }
 
+  loadActivityRiveArtboard(artboard, {
+    overlay: ACTIVITY_OVERLAY.MICROGAME,
+    logLabel: "MICROGAME",
+    sync: syncPendingActivityToMicrogameVM
+  });
+}
+
+function loadRoleSelectionRive() {
+  loadActivityRiveArtboard(ARTBOARD_ROLE_SELECTION, {
+    overlay: ACTIVITY_OVERLAY.ROLE_SELECTION,
+    logLabel: "ROLE_SELECTION",
+    sync: syncRoleSelectionToMicrogameVM
+  });
+}
+
+function loadActivityRiveArtboard(artboard, { overlay, logLabel, sync }) {
+  if (!els.microgameCanvas) {
+    console.warn(`[${logLabel}] #microgameCanvas não existe no HTML.`);
+    hideMicrogameLayer();
+    return;
+  }
+
   if (microgameRive && activeMicrogameArtboard === artboard) {
-    syncPendingActivityToMicrogameVM();
+    activeActivityOverlay = overlay || ACTIVITY_OVERLAY.NONE;
+    sync();
     return;
   }
 
@@ -380,13 +437,14 @@ function loadMicrogameRive(microgameId) {
       microgameRive.cleanup();
     }
   } catch (error) {
-    console.warn("[MICROGAME] erro ao limpar instância anterior:", error);
+    console.warn(`[${logLabel}] erro ao limpar instância anterior:`, error);
   }
 
   microgameRive = null;
   microgameVM = null;
   microgameTriggersBound = false;
   activeMicrogameArtboard = artboard;
+  activeActivityOverlay = overlay || ACTIVITY_OVERLAY.NONE;
 
   microgameRive = new riveRuntime.Rive({
     src: RIVE_SRC,
@@ -404,7 +462,7 @@ function loadMicrogameRive(microgameId) {
       microgameVM = microgameRive.viewModelInstance;
 
       bindMicrogameTriggers();
-      syncPendingActivityToMicrogameVM();
+      sync();
 
       requestAnimationFrame(resizeAllRive);
       setTimeout(resizeAllRive, 100);
@@ -434,6 +492,7 @@ function hideMicrogameLayer() {
 
   els.microgameLayer.classList.remove("is-open");
   els.microgameLayer.setAttribute("aria-hidden", "true");
+  activeActivityOverlay = ACTIVITY_OVERLAY.NONE;
 
   requestAnimationFrame(resizeAllRive);
 }
@@ -486,11 +545,50 @@ function handleMicrogameActionTriggerFromRive() {
 
   console.log("[RIVE] microgame actionCommand:", command);
 
+  if (activeActivityOverlay === ACTIVITY_OVERLAY.ROLE_SELECTION) {
+    handleRoleSelectionActionTriggerFromRive(command);
+    setVMEnum(microgameVM, "actionCommand", ACTION_COMMAND.NONE);
+    return;
+  }
+
   if (command === ACTION_COMMAND.PASS || command === ACTION_COMMAND.FAIL) {
-    handleMicrogameResult(command);
+    const explicitScore = getVMNumber(microgameVM, "microgameScore", Number.NaN);
+    handleMicrogameResult(command, explicitScore);
   }
 
   setVMEnum(microgameVM, "actionCommand", ACTION_COMMAND.NONE);
+}
+
+function handleRoleSelectionActionTriggerFromRive(command) {
+  if (!pendingActivity) return;
+
+  if (command === ACTION_COMMAND.CANCEL || command === ACTION_COMMAND.CLEAR_SELECTION) {
+    pendingActivity.roleSelectionActive = false;
+    hideMicrogameLayer();
+    applyClientStateToRive();
+    return;
+  }
+
+  if (command !== ACTION_COMMAND.CONFIRM && command !== ACTION_COMMAND.PASS) {
+    return;
+  }
+
+  const guess = readRoleGuessFromRive();
+  if (!guess) {
+    console.warn("[ROLE_SELECTION] papel selecionado inválido.");
+    syncRoleSelectionToMicrogameVM();
+    return;
+  }
+
+  pendingActivity.guessedRoleId = guess.id;
+  pendingActivity.guessedRoleName = guess.name;
+  pendingActivity.roleSelectionActive = false;
+  pendingActivity.score = 4;
+  pendingActivity.microgameId = "roleSelection";
+  pendingActivity.timeLimit = 0;
+  pendingActivity.difficulty = 0;
+
+  submitActivityResult(ACTION_COMMAND.PASS, true);
 }
 
 function bindTrigger(vm, triggerName, callback) {
@@ -600,6 +698,12 @@ function beginPendingActivity(actionCommand) {
     targetType: definition.targetType || TARGET_TYPE.NONE,
     allowSelfTarget: Boolean(definition.allowSelfTarget),
     defaultTargetSelf: Boolean(definition.defaultTargetSelf),
+    validTargetPlayerIds: Array.isArray(definition.validTargetPlayerIds)
+      ? definition.validTargetPlayerIds.map(String)
+      : [],
+    validTargetPlayerIndexes: Array.isArray(definition.validTargetPlayerIndexes)
+      ? definition.validTargetPlayerIndexes.map(Number)
+      : [],
 
     targetPlayerIndex: -1,
     targetPlayerId: "",
@@ -609,6 +713,11 @@ function beginPendingActivity(actionCommand) {
     targetPoiCode: "",
     targetPoiType: "none",
     targetPoiName: "",
+
+    guessedRoleId: "",
+    guessedRoleName: "",
+    roleSelectionActive: false,
+    theftValue: 0,
 
     microgameCategory: definition.microgameCategory || "none",
     microgamePool: Array.isArray(definition.microgamePool)
@@ -620,6 +729,7 @@ function beginPendingActivity(actionCommand) {
     seed: 0,
     timeLimit: 0,
     difficulty: 0,
+    score: 0,
 
     skipsMicrogame: Boolean(definition.skipsMicrogame),
     submitted: false
@@ -657,6 +767,14 @@ function confirmPendingActivity() {
     return;
   }
 
+  if (pendingActivity.targetType === TARGET_TYPE.PLAYER) {
+    const target = getPlayerByIndex(pendingActivity.targetPlayerIndex);
+    if (!target || target.id !== pendingActivity.targetPlayerId) {
+      console.warn("[ACTIVITY] confirmação recusada: jogador alvo inválido para esta ação.");
+      return;
+    }
+  }
+
   if (pendingActivity.targetType === TARGET_TYPE.POI && !pendingActivity.targetPoiCode) {
     console.warn("[ACTIVITY] confirmação recusada: POI alvo ausente.");
     return;
@@ -671,12 +789,108 @@ function confirmPendingActivity() {
     return;
   }
 
+  if (
+    pendingActivity.actionClass === LITHOMANCER_GUESS_ACTION_CLASS &&
+    !pendingActivity.guessedRoleId
+  ) {
+    startRoleSelectionForPendingActivity();
+    return;
+  }
+
   if (pendingActivity.skipsMicrogame) {
+    pendingActivity.score = 4;
     submitActivityResult(ACTION_COMMAND.PASS, true);
     return;
   }
 
   startMicrogameForPendingActivity();
+}
+
+function startRoleSelectionForPendingActivity() {
+  if (!pendingActivity) return;
+
+  pendingActivity.roleSelectionActive = true;
+  pendingActivity.microgameId = "roleSelection";
+  pendingActivity.seed = makeActivitySeed();
+  pendingActivity.timeLimit = 0;
+  pendingActivity.difficulty = 0;
+  pendingActivity.score = 4;
+
+  showMicrogameLayer();
+  loadRoleSelectionRive();
+  syncPendingActivityToRive();
+  syncRoleSelectionToMicrogameVM();
+}
+
+function readRoleGuessFromRive() {
+  const stringCandidates = [
+    readVMString(microgameVM, "selectedRoleId", ""),
+    readVMString(microgameVM, "selectedRoleName", ""),
+    readVMString(microgameVM, "roleId", ""),
+    readVMString(microgameVM, "roleName", ""),
+    getVMEnum(microgameVM, "selectedRoleId", ""),
+    getVMEnum(microgameVM, "selectedRole", ""),
+    getVMEnum(microgameVM, "roleId", ""),
+    getVMEnum(microgameVM, "roleName", "")
+  ].filter(Boolean);
+
+  for (const candidate of stringCandidates) {
+    const guess = resolveRoleGuessOption(candidate);
+    if (guess) return guess;
+  }
+
+  const numericCandidates = [
+    getVMNumber(microgameVM, "selectedRoleIndex", Number.NaN),
+    getVMNumber(microgameVM, "roleIndex", Number.NaN)
+  ];
+
+  for (const candidate of numericCandidates) {
+    if (!Number.isFinite(candidate)) continue;
+    const guess = resolveRoleGuessOption(String(Math.round(candidate)));
+    if (guess) return guess;
+  }
+
+  return null;
+}
+
+function resolveRoleGuessOption(input) {
+  const raw = String(input || "").trim();
+  if (!raw) return null;
+
+  const numeric = Number(raw);
+  if (Number.isInteger(numeric)) {
+    return ROLE_GUESS_OPTIONS.find(option => option.index === numeric) || null;
+  }
+
+  const normalized = normalizeRoleGuessText(raw);
+  return ROLE_GUESS_OPTIONS.find(option => (
+    normalizeRoleGuessText(option.id) === normalized ||
+    normalizeRoleGuessText(option.name) === normalized
+  )) || null;
+}
+
+function normalizeRoleGuessText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function readTheftValueFromMicrogame() {
+  if (!pendingActivity || pendingActivity.actionClass !== THIEF_ROB_ACTION_CLASS) {
+    return 0;
+  }
+
+  const candidates = [
+    getVMNumber(microgameVM, "theftValue", Number.NaN),
+    getVMNumber(microgameVM, "robValue", Number.NaN),
+    getVMNumber(microgameVM, "selectedTheftValue", Number.NaN),
+    getVMNumber(microgameVM, "lootValue", Number.NaN)
+  ];
+
+  const value = candidates.find(candidate => Number.isFinite(candidate));
+  return Number.isFinite(value) ? clamp(Math.round(value), 0, 3) : 0;
 }
 
 function startMicrogameForPendingActivity() {
@@ -693,6 +907,7 @@ function startMicrogameForPendingActivity() {
   pendingActivity.microgameId = microgameId;
   pendingActivity.timeLimit = Number(pendingActivity.microgameTimeLimit || 0);
   pendingActivity.difficulty = Number(pendingActivity.microgameDifficulty || 0);
+  pendingActivity.score = 3;
 
   showMicrogameLayer();
   loadMicrogameRive(microgameId);
@@ -700,10 +915,18 @@ function startMicrogameForPendingActivity() {
   syncPendingActivityToMicrogameVM();
 }
 
-function handleMicrogameResult(command) {
+function handleMicrogameResult(command, explicitScore = Number.NaN) {
   if (!pendingActivity) {
     resetMicrogameVM();
     return;
+  }
+
+  pendingActivity.theftValue = readTheftValueFromMicrogame();
+
+  if (Number.isFinite(explicitScore)) {
+    pendingActivity.score = clamp(Math.round(explicitScore), 0, 4);
+  } else {
+    pendingActivity.score = command === ACTION_COMMAND.FAIL ? 0 : 3;
   }
 
   submitActivityResult(command, false);
@@ -735,12 +958,16 @@ function submitActivityResult(resultCommand, skippedMicrogame) {
     targetPoiIndex: pendingActivity.targetPoiIndex,
     targetPoiCode: pendingActivity.targetPoiCode,
     targetPoiType: pendingActivity.targetPoiType,
+    guessedRoleId: pendingActivity.guessedRoleId,
+    guessedRoleName: pendingActivity.guessedRoleName,
+    theftValue: pendingActivity.theftValue,
 
     microgameCategory: pendingActivity.microgameCategory,
     microgameId: pendingActivity.microgameId,
     microgameSeed: pendingActivity.seed,
     microgameTimeLimit: pendingActivity.timeLimit,
     microgameDifficulty: pendingActivity.difficulty,
+    microgameScore: Number(pendingActivity.score || 0),
 
     resultCommand,
     skippedMicrogame: Boolean(skippedMicrogame)
@@ -883,7 +1110,7 @@ function syncPendingActivityToRive() {
 
   setVMBoolean(playerVM, "hasPendingAction", true);
   setVMBoolean(playerVM, "pendingActionNeedsTarget", needsTarget);
-  setVMBoolean(playerVM, "canConfirmAction", hasTarget && !pendingActivity.submitted);
+  setVMBoolean(playerVM, "canConfirmAction", hasTarget && !pendingActivity.submitted && !pendingActivity.roleSelectionActive);
 
   setVMEnum(playerVM, "selectedTargetType", displayedTargetType);
   setVMNumber(playerVM, "selectedTargetIndex", targetIndex);
@@ -909,6 +1136,26 @@ function syncPendingActivityToMicrogameVM() {
   setVMNumber(microgameVM, "seed", pendingActivity.seed || 0);
   setVMNumber(microgameVM, "timeLimit", pendingActivity.timeLimit || 0);
   setVMNumber(microgameVM, "difficulty", pendingActivity.difficulty || 0);
+  setVMNumber(microgameVM, "microgameScore", Number(pendingActivity.score || 0));
+  setVMEnum(microgameVM, "actionCommand", ACTION_COMMAND.NONE);
+}
+
+function syncRoleSelectionToMicrogameVM() {
+  if (!microgameVM || !pendingActivity) return;
+
+  const selected = resolveRoleGuessOption(pendingActivity.guessedRoleId);
+
+  setVMEnum(microgameVM, "microGameId", "roleSelection");
+  setVMEnum(microgameVM, "microGameCategory", ACTIVITY_OVERLAY.ROLE_SELECTION);
+  setVMEnum(microgameVM, "microGameState", MICROGAME_STATE.RUNNING);
+  setVMString(microgameVM, "rolesData", encodeRoleOptionsData());
+  setVMString(microgameVM, "roleOptionsData", encodeRoleOptionsData());
+  setVMNumber(microgameVM, "roleCount", ROLE_GUESS_OPTIONS.length);
+  setVMNumber(microgameVM, "selectedRoleIndex", selected?.index || -1);
+  setVMString(microgameVM, "selectedRoleId", selected?.id || "");
+  setVMString(microgameVM, "selectedRoleName", selected?.name || "");
+  setVMString(microgameVM, "targetPlayerName", pendingActivity.targetPlayerName || "");
+  setVMNumber(microgameVM, "targetPlayerIndex", pendingActivity.targetPlayerIndex || -1);
   setVMEnum(microgameVM, "actionCommand", ACTION_COMMAND.NONE);
 }
 
@@ -921,6 +1168,13 @@ function resetMicrogameVM() {
   setVMNumber(microgameVM, "seed", 0);
   setVMNumber(microgameVM, "timeLimit", 0);
   setVMNumber(microgameVM, "difficulty", 0);
+  setVMNumber(microgameVM, "microgameScore", 0);
+  setVMString(microgameVM, "rolesData", "");
+  setVMString(microgameVM, "roleOptionsData", "");
+  setVMNumber(microgameVM, "roleCount", 0);
+  setVMNumber(microgameVM, "selectedRoleIndex", -1);
+  setVMString(microgameVM, "selectedRoleId", "");
+  setVMString(microgameVM, "selectedRoleName", "");
   setVMEnum(microgameVM, "actionCommand", ACTION_COMMAND.NONE);
 }
 
@@ -1140,6 +1394,7 @@ function applySnapshot(snapshot) {
   clientState.phaseProgress = publicState.phaseProgress;
 
   clientState.publicMessage = publicState.publicMessage || "";
+  clientState.eventIndicatorsMessage = publicState.eventIndicatorsMessage || "";
 
   clientState.skipVoteCount = Number(publicState.skipVoteCount || 0);
   clientState.submittedVoteCount = Number(publicState.submittedVoteCount || 0);
@@ -1204,6 +1459,10 @@ function applySnapshot(snapshot) {
   clientState.votedSkip = Boolean(privateState.votedSkip);
 
   clientState.privateMessage = privateState.privateMessage || "";
+  clientState.playerEffectsMessage = privateState.playerEffectsMessage || "";
+  clientState.effectLabels = privateState.effectLabels || "";
+  clientState.hasParanoia = Boolean(privateState.hasParanoia);
+  clientState.isHaunted = Boolean(privateState.isHaunted);
 
   const localPlayerJustDied =
     hadReceivedSnapshot &&
@@ -1257,6 +1516,7 @@ function handlePhaseChange(previousPhase, currentPhase) {
 function applyClientStateToRive() {
   const interactionMode = getInteractionMode();
   const targetState = getTargetStateFromServer();
+  const selectionState = getSelectionStateForCurrentMode(interactionMode);
 
   const derivedState = {
     ...clientState,
@@ -1264,17 +1524,21 @@ function applyClientStateToRive() {
     phaseEnum: PHASE_ENUM[clientState.phase] || "lobby",
     winnerEnum: WINNER_ENUM[clientState.winner] || "none",
 
-    playersData: encodePlayersData(clientState.players),
+    playersData: encodePlayersData(clientState.players, {
+      selectionEnabled: selectionState.playerSelectionEnabled,
+      selectablePlayerIds: selectionState.selectablePlayerIds,
+      selectablePlayerIndexes: selectionState.selectablePlayerIndexes,
+      localPlayerId: clientState.playerId,
+      allowSelfTarget: selectionState.allowSelfTarget
+    }),
     poisData: encodePoisData(clientState.pois),
 
     interactionMode,
-    selectionEnabled:
-      interactionMode === INTERACTION_MODE.VOTE ||
-      interactionMode === INTERACTION_MODE.VICTIM ||
-      pendingActivity?.targetType === TARGET_TYPE.REGION,
+    selectionEnabled: selectionState.playerSelectionEnabled,
     poiSelectionEnabled:
       interactionMode === INTERACTION_MODE.POI ||
       pendingActivity?.targetType === TARGET_TYPE.REGION,
+    selfSelectionEnabled: Boolean(pendingActivity?.allowSelfTarget),
 
     hasSelectedTarget: targetState.hasSelectedTarget,
     selectedTargetIndex: targetState.selectedTargetIndex,
@@ -1307,7 +1571,11 @@ function applyClientStateToRive() {
 
   syncVillageSelectionFromServer(targetState, interactionMode);
   syncPendingActivityToRive();
-  syncPendingActivityToMicrogameVM();
+  if (activeActivityOverlay === ACTIVITY_OVERLAY.ROLE_SELECTION) {
+    syncRoleSelectionToMicrogameVM();
+  } else {
+    syncPendingActivityToMicrogameVM();
+  }
 }
 
 function getInteractionMode() {
@@ -1479,13 +1747,95 @@ function handleStartGameFromRive() {
 }
 
 function getPlayerByIndex(index) {
-  return clientState.players.find(player => {
-    return (
-      Number(player.index) === Number(index) &&
-      player.isAlive &&
-      player.id !== clientState.playerId
-    );
-  }) || null;
+  const player = clientState.players.find(candidate => Number(candidate.index) === Number(index)) || null;
+
+  if (!player) {
+    return null;
+  }
+
+  if (!isPlayerSelectableInCurrentMode(player)) {
+    console.warn("[SELECTION] jogador não é selecionável para a ação atual:", {
+      index: player.index,
+      name: player.name,
+      pendingAction: pendingActivity?.actionId || "",
+      interactionMode: getInteractionMode()
+    });
+    return null;
+  }
+
+  return player;
+}
+
+function getSelectionStateForCurrentMode(interactionMode = getInteractionMode()) {
+  if (pendingActivity) {
+    const usesPlayerSelection =
+      pendingActivity.targetType === TARGET_TYPE.PLAYER ||
+      pendingActivity.targetType === TARGET_TYPE.REGION;
+
+    return {
+      playerSelectionEnabled: usesPlayerSelection,
+      selectablePlayerIds: pendingActivity.validTargetPlayerIds || [],
+      selectablePlayerIndexes: pendingActivity.validTargetPlayerIndexes || [],
+      allowSelfTarget: Boolean(pendingActivity.allowSelfTarget)
+    };
+  }
+
+  if (interactionMode === INTERACTION_MODE.VOTE) {
+    return {
+      playerSelectionEnabled: Boolean(clientState.canVote),
+      selectablePlayerIds: clientState.players
+        .filter(player => player.isAlive && player.id !== clientState.playerId)
+        .map(player => player.id),
+      selectablePlayerIndexes: [],
+      allowSelfTarget: false
+    };
+  }
+
+  if (interactionMode === INTERACTION_MODE.VICTIM) {
+    return {
+      playerSelectionEnabled: Boolean(clientState.canChooseVictim),
+      selectablePlayerIds: clientState.players
+        .filter(player => player.isAlive && player.id !== clientState.playerId)
+        .map(player => player.id),
+      selectablePlayerIndexes: [],
+      allowSelfTarget: false
+    };
+  }
+
+  return {
+    playerSelectionEnabled: false,
+    selectablePlayerIds: [],
+    selectablePlayerIndexes: [],
+    allowSelfTarget: false
+  };
+}
+
+function isPlayerSelectableInCurrentMode(player) {
+  if (!player) return false;
+
+  const selectionState = getSelectionStateForCurrentMode();
+
+  if (!selectionState.playerSelectionEnabled) {
+    return false;
+  }
+
+  const explicitIds = new Set(selectionState.selectablePlayerIds || []);
+  const explicitIndexes = new Set((selectionState.selectablePlayerIndexes || []).map(Number));
+  const isExplicitlySelectable = explicitIds.has(player.id) || explicitIndexes.has(Number(player.index));
+
+  if (!player.isAlive && !isExplicitlySelectable) {
+    return false;
+  }
+
+  if (!selectionState.allowSelfTarget && player.id === clientState.playerId) {
+    return false;
+  }
+
+  if (explicitIds.size <= 0 && explicitIndexes.size <= 0) {
+    return player.isAlive;
+  }
+
+  return isExplicitlySelectable;
 }
 
 function getSelectedTarget() {
@@ -1598,6 +1948,15 @@ function pollSelectedPlayer() {
     }
 
     syncPendingActivityToRive();
+
+    if (
+      pendingActivity.actionClass === LITHOMANCER_GUESS_ACTION_CLASS &&
+      !pendingActivity.guessedRoleId &&
+      !pendingActivity.roleSelectionActive
+    ) {
+      startRoleSelectionForPendingActivity();
+    }
+
     return;
   }
 
@@ -1826,6 +2185,12 @@ function normalizeSnapshotActions(actions) {
       targetType: String(action.targetType || TARGET_TYPE.NONE),
       allowSelfTarget: Boolean(action.allowSelfTarget),
       defaultTargetSelf: Boolean(action.defaultTargetSelf),
+      validTargetPlayerIds: Array.isArray(action.validTargetPlayerIds)
+        ? action.validTargetPlayerIds.map(item => String(item || "")).filter(Boolean)
+        : [],
+      validTargetPlayerIndexes: Array.isArray(action.validTargetPlayerIndexes)
+        ? action.validTargetPlayerIndexes.map(item => Number(item)).filter(Number.isFinite)
+        : [],
 
       microgameCategory: String(action.microgameCategory || "none"),
       microgamePool: Array.isArray(action.microgamePool)
@@ -1863,6 +2228,12 @@ function encodePoisData(pois) {
 
       return `${code}|${status}|${selectable}`;
     })
+    .join(";");
+}
+
+function encodeRoleOptionsData() {
+  return ROLE_GUESS_OPTIONS
+    .map(option => `${option.index}|${sanitizeDataField(option.id)}|${sanitizeDataField(option.name)}|1`)
     .join(";");
 }
 

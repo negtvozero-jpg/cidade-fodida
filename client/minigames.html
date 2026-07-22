@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>cidade fodida — teste de minigames</title>
+  <link rel="stylesheet" href="./html-ui.css" />
+</head>
+<body>
+  <main class="minigame-lab-shell">
+    <header class="lab-header">
+      <div class="eyebrow">cidade fodida</div>
+      <h1>Teste de minigames</h1>
+      <p class="hint">Página isolada para testar controles, ritmo, feedback visual e vibração antes de levar os minigames para o Rive.</p>
+      <p><a class="room-pill" href="./html.html">Voltar para o jogo</a></p>
+    </header>
+
+    <section id="labCategories" class="lab-grid" aria-label="Categorias de minigame"></section>
+
+    <section class="lab-panel">
+      <div class="card">
+        <div class="eyebrow" id="labCategory">categoria</div>
+        <h2 id="labTitle">Selecione um minigame</h2>
+        <p id="labInstruction" class="hint">Escolha uma categoria acima.</p>
+        <div class="lab-controls">
+          <button id="labStartButton" class="primary" disabled>Iniciar</button>
+          <span id="labTimer" class="timer-chip">--</span>
+          <span id="labScore">Score: —</span>
+        </div>
+      </div>
+
+      <div class="lab-stage-wrap">
+        <div id="labStage" class="microgame-stage"></div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="./src/minigame-lab.js"></script>
+</body>
+</html>

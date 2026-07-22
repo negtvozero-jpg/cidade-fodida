@@ -7,13 +7,10 @@ function sanitizeRoomCode(value) {
 }
 
 function sanitizePlayerName(value) {
-  const name = String(value || "").trim();
-
-  if (!name) {
-    return "";
-  }
-
-  return name.slice(0, 18);
+  return String(value || "")
+    .trim()
+    .replace(/[|;]/g, "")
+    .slice(0, 18);
 }
 
 module.exports = {
