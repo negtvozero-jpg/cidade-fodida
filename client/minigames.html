@@ -23,10 +23,19 @@
         <h2 id="labTitle">Selecione um minigame</h2>
         <p id="labInstruction" class="hint">Escolha uma categoria acima.</p>
         <div class="lab-controls">
+          <label class="lab-difficulty">
+            <span>Dificuldade</span>
+            <select id="labDifficulty">
+              <option value="easy">Fácil</option>
+              <option value="normal" selected>Normal</option>
+              <option value="hard">Difícil</option>
+            </select>
+          </label>
           <button id="labStartButton" class="primary" disabled>Iniciar</button>
           <span id="labTimer" class="timer-chip">--</span>
           <span id="labScore">Score: —</span>
         </div>
+        <p id="labDifficultyNote" class="hint"></p>
       </div>
 
       <div class="lab-stage-wrap">

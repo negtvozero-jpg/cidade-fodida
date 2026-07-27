@@ -57,7 +57,7 @@ const ACTION_DEFINITIONS = {
     energyCost: CONFIG.energy.action2Cost,
     energyGain: 0,
     targetType: TARGET_TYPE.POI,
-    microgameCategory: MICROGAME_CATEGORY.WATCH,
+    microgameCategory: MICROGAME_CATEGORY.MOVEMENT,
     skipsMicrogame: false,
     implemented: true,
     leavesHome: true
@@ -87,7 +87,7 @@ const ACTION_DEFINITIONS = {
     energyCost: CONFIG.energy.action2Cost,
     energyGain: 0,
     targetType: TARGET_TYPE.NONE,
-    microgameCategory: MICROGAME_CATEGORY.INVASION,
+    microgameCategory: MICROGAME_CATEGORY.MANIPULATION,
     skipsMicrogame: false,
     implemented: true,
     leavesHome: true
@@ -164,7 +164,7 @@ const ACTION_DEFINITIONS = {
     targetType: TARGET_TYPE.PLAYER,
     allowSelfTarget: true,
     defaultTargetSelf: true,
-    microgameCategory: MICROGAME_CATEGORY.WATCH,
+    microgameCategory: MICROGAME_CATEGORY.MOVEMENT,
     skipsMicrogame: false,
     implemented: true,
     leavesHome: true

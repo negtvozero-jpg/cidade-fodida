@@ -1485,3 +1485,446 @@ body.role-revealing #roleReveal {
     font-size: 8px;
   }
 }
+
+/* ============================================================
+   PATCH v8 — calibração de minigames HTML
+   ============================================================ */
+.mg-instruction.mg-manipulation {
+  width: min(380px, 86%);
+  min-height: 124px;
+  display: grid;
+  place-items: center;
+  border-radius: 22px;
+  border: 3px solid rgba(255,255,255,.20);
+  font-size: clamp(36px, 12vw, 72px);
+  font-weight: 1000;
+  letter-spacing: .03em;
+  user-select: none;
+  touch-action: none;
+}
+
+.mg-instruction.mg-manipulation.hold {
+  background: linear-gradient(180deg, rgba(52, 168, 94, .88), rgba(19, 99, 74, .92));
+  color: #fff6d6;
+  box-shadow: 0 0 34px rgba(52,168,94,.28);
+}
+
+.mg-instruction.mg-manipulation.danger {
+  background: linear-gradient(180deg, rgba(235, 69, 95, .92), rgba(103, 18, 42, .94));
+  color: #fff;
+  box-shadow: 0 0 34px rgba(235,69,95,.32);
+}
+
+.mg-instruction.mg-manipulation.correct {
+  outline: 5px solid rgba(238,225,119,.80);
+}
+
+.mg-instruction.mg-manipulation.wrong {
+  outline: 5px solid rgba(235,69,95,.72);
+}
+
+.mg-instruction.mg-manipulation.pressing {
+  transform: scale(.97);
+}
+
+.mg-lens {
+  width: 112px;
+  height: 112px;
+  border-width: 4px;
+}
+
+.mg-lens.near {
+  border-color: rgba(238,225,119,.90);
+  box-shadow: 0 0 24px rgba(238,225,119,.42);
+}
+
+.mg-lens.active {
+  border-color: #fff7a9;
+  box-shadow: 0 0 36px rgba(238,225,119,.84);
+}
+
+.mg-signal.near {
+  background: rgba(238,225,119,.42);
+}
+
+.mg-proximity {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(6, 10, 18, .74);
+  color: rgba(255,255,255,.78);
+  font-weight: 850;
+  pointer-events: none;
+}
+
+.mg-proximity.near {
+  background: rgba(238,225,119,.28);
+  color: #fff7d2;
+}
+
+.mg-proximity.good {
+  background: rgba(52, 168, 94, .82);
+  color: #fff;
+}
+
+.mg-choice {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 12px;
+  padding: 20px;
+  text-align: center;
+}
+
+.mg-choice strong {
+  font-size: clamp(24px, 7vw, 42px);
+}
+
+.mg-choice span {
+  color: var(--muted);
+}
+
+.mg-choice-button {
+  min-width: min(320px, 82vw);
+  background: #eee177;
+  color: #050709;
+  font-weight: 1000;
+}
+
+.mg-loot.decoy {
+  background: rgba(235,69,95,.86);
+  color: #fff;
+}
+
+.mg-stab-zone {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(280px, 72vw);
+  height: min(280px, 72vw);
+  transform: translate(-50%, -50%);
+  border-radius: 40% 40% 48% 48%;
+  border: 4px solid rgba(238,225,119,.62);
+  background:
+    linear-gradient(180deg, transparent 0 44%, rgba(238,225,119,.22) 44% 56%, transparent 56%),
+    radial-gradient(circle at center, rgba(235,69,95,.28), rgba(12,18,30,.74));
+  display: grid;
+  place-items: center;
+  color: rgba(255,255,255,.86);
+  font-size: clamp(28px, 9vw, 54px);
+  font-weight: 1000;
+  text-transform: uppercase;
+  touch-action: none;
+}
+
+.mg-stab-zone::after {
+  content: "↓";
+  position: absolute;
+  top: 12px;
+  font-size: clamp(44px, 16vw, 90px);
+  color: #eee177;
+  text-shadow: 0 4px 16px rgba(0,0,0,.8);
+}
+
+.mg-stab-zone.armed {
+  box-shadow: 0 0 34px rgba(238,225,119,.45);
+}
+
+.mg-stab-zone.hit {
+  background:
+    linear-gradient(180deg, transparent 0 44%, rgba(255,255,255,.35) 44% 56%, transparent 56%),
+    radial-gradient(circle at center, rgba(238,225,119,.55), rgba(12,18,30,.74));
+}
+
+.mg-pentagram-board {
+  position: absolute;
+  inset: 7% 10%;
+  touch-action: none;
+}
+
+.mg-pentagram-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.mg-pentagram-svg path {
+  fill: none;
+  stroke: rgba(238,225,119,.92);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 0 100;
+  filter: drop-shadow(0 0 10px rgba(238,225,119,.45));
+}
+
+.mg-pentagram-point {
+  position: absolute;
+  width: 42px;
+  height: 42px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 3px solid rgba(255,255,255,.28);
+  background: rgba(6,10,18,.84);
+  color: #eee177;
+  display: grid;
+  place-items: center;
+  font-weight: 1000;
+}
+
+.mg-pentagram-point.done {
+  background: #eee177;
+  color: #07101e;
+  box-shadow: 0 0 22px rgba(238,225,119,.72);
+}
+
+.mg-route {
+  position: absolute;
+  inset: 8% 8%;
+  border-radius: 24px;
+  border: 2px dashed rgba(238,225,119,.32);
+  background:
+    linear-gradient(130deg, transparent 0 22%, rgba(238,225,119,.18) 22% 27%, transparent 27% 48%, rgba(238,225,119,.16) 48% 53%, transparent 53% 76%, rgba(238,225,119,.16) 76% 81%, transparent 81%),
+    rgba(8, 13, 22, .52);
+  touch-action: none;
+}
+
+.mg-runner,
+.mg-checkpoint,
+.mg-shadow {
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+
+.mg-runner {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #eee177;
+  color: #07101e;
+  display: grid;
+  place-items: center;
+  font-size: 34px;
+  line-height: 1;
+  z-index: 3;
+}
+
+.mg-checkpoint {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid #eee177;
+  background: rgba(238,225,119,.18);
+}
+
+.mg-shadow {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: rgba(235,69,95,.32);
+  border: 2px solid rgba(235,69,95,.72);
+}
+
+/* ============================================================
+   PATCH v9 — dificuldade e recalibração de minigames
+   ============================================================ */
+.lab-difficulty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.lab-difficulty select {
+  min-height: 42px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: #0d111a;
+  color: var(--text);
+  font: inherit;
+}
+
+#labDifficultyNote {
+  margin: 0;
+}
+
+.mg-meter {
+  position: absolute;
+  left: 50%;
+  bottom: 58px;
+  width: min(320px, 76%);
+  height: 10px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: rgba(255,255,255,.10);
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.14);
+  pointer-events: none;
+}
+
+.mg-meter i {
+  display: block;
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(238,225,119,.78), rgba(130,185,141,.92));
+  transition: width .12s ease;
+}
+
+.mg-pentagram-svg .mg-pentagram-guide {
+  fill: none;
+  stroke: rgba(238,225,119,.32);
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: none;
+  filter: none;
+}
+
+.mg-pentagram-svg .mg-pentagram-drawn {
+  fill: none;
+  stroke: rgba(238,225,119,.96);
+  stroke-width: 5.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 12px rgba(238,225,119,.56));
+}
+
+.mg-pentagram-point.subtle {
+  width: 22px;
+  height: 22px;
+  border-width: 2px;
+  background: rgba(238,225,119,.18);
+  color: transparent;
+}
+
+.mg-draw-cursor {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: rgba(238,225,119,.92);
+  box-shadow: 0 0 24px rgba(238,225,119,.72);
+  pointer-events: none;
+}
+
+.mg-pentagram-board.drawing-good {
+  filter: drop-shadow(0 0 10px rgba(130,185,141,.28));
+}
+
+.mg-pentagram-board.drawing-bad {
+  filter: drop-shadow(0 0 10px rgba(235,69,95,.32));
+}
+
+.mg-theft-board {
+  position: absolute;
+  inset: 8% 8%;
+  border-radius: 24px;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, rgba(255,255,255,.06) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(255,255,255,.05) 1px, transparent 1px),
+    radial-gradient(circle at 16% 22%, rgba(238,225,119,.10), transparent 16%),
+    rgba(6, 10, 18, .72);
+  background-size: 44px 44px, 44px 44px, auto, auto;
+  border: 2px solid rgba(238,225,119,.26);
+  touch-action: none;
+}
+
+.mg-theft-board::before,
+.mg-theft-board::after {
+  content: "";
+  position: absolute;
+  border-radius: 16px;
+  background: rgba(255,255,255,.055);
+  border: 1px solid rgba(255,255,255,.06);
+}
+
+.mg-theft-board::before {
+  left: 8%;
+  top: 18%;
+  width: 28%;
+  height: 64%;
+}
+
+.mg-theft-board::after {
+  right: 8%;
+  top: 14%;
+  width: 24%;
+  height: 70%;
+}
+
+.mg-theft-hand {
+  position: absolute;
+  z-index: 8;
+  left: 50%;
+  top: 88%;
+  width: 46px;
+  height: 46px;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 2px solid rgba(238,225,119,.92);
+  background: rgba(238,225,119,.18);
+  color: #fff7d2;
+  font-size: 11px;
+  font-weight: 1000;
+  text-transform: uppercase;
+  box-shadow: 0 0 22px rgba(238,225,119,.28);
+  pointer-events: none;
+}
+
+.mg-theft-item {
+  position: absolute;
+  z-index: 5;
+  width: 42px;
+  height: 42px;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  border: 2px solid rgba(238,225,119,.72);
+  background:
+    conic-gradient(rgba(130,185,141,.92) var(--steal-progress, 0%), rgba(238,225,119,.14) 0),
+    rgba(238,225,119,.18);
+  color: #fff7d2;
+  font-weight: 1000;
+  box-shadow: 0 0 18px rgba(238,225,119,.18);
+}
+
+.mg-theft-item.done {
+  background: rgba(130,185,141,.82);
+  color: #07101e;
+  border-color: rgba(130,185,141,.96);
+}
+
+.mg-noise-zone {
+  position: absolute;
+  z-index: 3;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(235,69,95,.28), rgba(235,69,95,.08) 62%, transparent 65%);
+  border: 1px solid rgba(235,69,95,.32);
+}
+
+.theft-2 .mg-theft-hand,
+.theft-3 .mg-theft-hand {
+  width: 40px;
+  height: 40px;
+}
+
+.theft-3 .mg-theft-hand {
+  width: 35px;
+  height: 35px;
+  font-size: 9px;
+}

@@ -100,6 +100,11 @@ const CONFIG = {
         timeLimit: 7,
         difficulty: 1
       },
+      [MICROGAME_CATEGORY.MOVEMENT]: {
+        pool: [MICROGAME_ID.GAME_1, MICROGAME_ID.GAME_2],
+        timeLimit: 8,
+        difficulty: 1
+      },
       [MICROGAME_CATEGORY.WATCH]: {
         pool: [MICROGAME_ID.GAME_1],
         timeLimit: 8,

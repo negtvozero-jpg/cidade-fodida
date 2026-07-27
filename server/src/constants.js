@@ -93,6 +93,7 @@ const MICROGAME_CATEGORY = {
   RITUAL: "ritual",
   MANIPULATION: "manipulation",
   INVASION: "invasion",
+  MOVEMENT: "movement",
   WATCH: "watch",
   RECOVERY: "recovery"
 };
